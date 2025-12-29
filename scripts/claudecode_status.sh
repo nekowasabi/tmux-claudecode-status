@@ -8,8 +8,8 @@ source "$CURRENT_DIR/session_tracker.sh"
 
 # Default configuration
 DEFAULT_ICON=""                    # Nerd Font: robot
-DEFAULT_WORKING_DOT="●"
-DEFAULT_IDLE_DOT="○"
+DEFAULT_WORKING_DOT="🤖"
+DEFAULT_IDLE_DOT="🔔"
 # tmux 3.x requires hex colors without # prefix for #[fg=] syntax
 # idle=赤、working=緑
 DEFAULT_WORKING_COLOR="colour46"    # green (tmux colour46 ≈ #00ff00) - 作業中
@@ -85,11 +85,11 @@ main() {
             first=0
             output+="  "  # Left margin
         else
-            output+=" "  # Space between dots
+            output+="$separator"
         fi
 
-        # ドットのみを追加（プロジェクト名は表示しない）
-        output+="#[fg=$color]${dot}#[default]"
+        # プロジェクト名 + ドットを追加（例: "tmux-status... ●"）
+        output+="${project_name} #[fg=$color]${dot}#[default]"
     done
 
     output+="  "  # Right margin

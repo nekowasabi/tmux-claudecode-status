@@ -6,8 +6,17 @@ CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$CURRENT_DIR/shared.sh"
 
 # working判定の閾値（秒）
-# この秒数以内にdebugファイルが更新されていればworking
-WORKING_THRESHOLD="${CLAUDECODE_WORKING_THRESHOLD:-5}"
+# この秒数以内にファイルが更新されていればworking
+# tmux-monitorを参考に30秒に設定（Claude Codeは応答生成中でも
+# .jsonlファイルの更新が不定期のため、短い閾値では誤判定する）
+WORKING_THRESHOLD="${CLAUDECODE_WORKING_THRESHOLD:-30}"
+
+# CPU使用率の閾値（%）- この値以上ならworking
+# Claude Codeはバックグラウンドでも一定のCPU使用率があるため、高めに設定
+CPU_THRESHOLD="${CLAUDECODE_CPU_THRESHOLD:-20}"
+
+# ペインコンテンツハッシュのキャッシュディレクトリ
+CACHE_DIR="/tmp/claudecode_status_cache"
 
 # Claude Codeプロセスの PID 一覧を取得
 # 戻り値: スペース区切りのPID一覧
@@ -147,16 +156,133 @@ is_descendant_of() {
     return 1
 }
 
-# 単一プロセスのworking状態を判定
+# キャッシュディレクトリを確保
+ensure_cache_dir() {
+    [ -d "$CACHE_DIR" ] || mkdir -p "$CACHE_DIR"
+}
+
+# ペインコンテンツのハッシュを保存
+save_content_hash() {
+    local pane_id="$1"
+    local content_hash="$2"
+    ensure_cache_dir
+    echo "$content_hash" > "$CACHE_DIR/${pane_id//\//_}.hash"
+}
+
+# 前回のハッシュを取得
+get_previous_hash() {
+    local pane_id="$1"
+    local hash_file="$CACHE_DIR/${pane_id//\//_}.hash"
+    [ -f "$hash_file" ] && cat "$hash_file"
+}
+
+# ペインコンテンツの変化を検出
+check_pane_activity() {
+    local pane_id="$1"
+
+    # 現在のペインコンテンツをキャプチャ（最後の20行）
+    local current_content
+    current_content=$(tmux capture-pane -t "$pane_id" -p -S -20 2>/dev/null)
+
+    # ハッシュ化
+    local current_hash
+    current_hash=$(echo "$current_content" | md5sum | cut -d' ' -f1)
+
+    # 前回のハッシュと比較
+    local previous_hash
+    previous_hash=$(get_previous_hash "$pane_id")
+
+    # 現在のハッシュを保存
+    save_content_hash "$pane_id" "$current_hash"
+
+    # 比較結果を返す
+    if [ -z "$previous_hash" ]; then
+        echo "unknown"
+    elif [ "$current_hash" != "$previous_hash" ]; then
+        echo "working"
+    else
+        echo "idle"
+    fi
+}
+
+# PIDからプロジェクトディレクトリパスを取得
 # $1: PID
+# 戻り値: ~/.claude/projects/ 内のディレクトリパス（見つからない場合は空）
+get_project_session_dir() {
+    local pid="$1"
+    local cwd_link="/proc/$pid/cwd"
+
+    if [ -L "$cwd_link" ]; then
+        local cwd
+        cwd=$(readlink "$cwd_link" 2>/dev/null)
+        if [ -n "$cwd" ]; then
+            # cwdをClaude Codeのプロジェクトディレクトリ名形式に変換
+            # 例: /home/takets/repos/foo -> -home-takets-repos-foo
+            local encoded_dir
+            encoded_dir=$(echo "$cwd" | sed 's|^/||; s|/|-|g; s|^|-|')
+            local project_dir="$HOME/.claude/projects/$encoded_dir"
+            if [ -d "$project_dir" ]; then
+                echo "$project_dir"
+                return
+            fi
+        fi
+    fi
+
+    echo ""
+}
+
+# 単一プロセスのworking状態を判定
+# $1: PID, $2: pane_id（ペインコンテンツ変化検出用、オプション）
 # 戻り値: "working" または "idle"
 check_process_status() {
     local pid="$1"
+    local pane_id="$2"
     local current_time
     current_time=$(get_current_timestamp)
-    local debug_dir="$HOME/.claude/debug"
 
-    # Linux: /proc/{pid}/fd から開いているdebugファイルを特定
+    # 方法1: ペインコンテンツの変化で判定（pane_idが提供されている場合）
+    if [ -n "$pane_id" ]; then
+        local activity
+        activity=$(check_pane_activity "$pane_id")
+        if [ "$activity" != "unknown" ]; then
+            echo "$activity"
+            return
+        fi
+    fi
+
+    # 方法2: CPU使用率で判定（閾値以上ならworking）
+    local cpu
+    cpu=$(ps -p "$pid" -o %cpu= 2>/dev/null | tr -d ' ' | cut -d. -f1)
+    if [ -n "$cpu" ] && [ "$cpu" -gt "$CPU_THRESHOLD" ] 2>/dev/null; then
+        echo "working"
+        return
+    fi
+
+    # 方法3: プロジェクトのセッションファイル（.jsonl）の更新時刻で判定
+    local project_dir
+    project_dir=$(get_project_session_dir "$pid")
+
+    if [ -n "$project_dir" ] && [ -d "$project_dir" ]; then
+        # 最新の.jsonlファイルを取得
+        local latest_file
+        latest_file=$(ls -t "$project_dir"/*.jsonl 2>/dev/null | head -1)
+
+        if [ -n "$latest_file" ] && [ -f "$latest_file" ]; then
+            local mtime
+            mtime=$(get_file_mtime "$latest_file")
+            if [ -n "$mtime" ]; then
+                local diff=$((current_time - mtime))
+                # 閾値内ならworking
+                if [ "$diff" -lt "$WORKING_THRESHOLD" ]; then
+                    echo "working"
+                    return
+                fi
+            fi
+        fi
+    fi
+
+    # 方法4: debug ファイルで判定（旧方式、フォールバック）
+    local debug_dir="$HOME/.claude/debug"
     if [ -d "/proc/$pid/fd" ]; then
         local debug_file
         debug_file=$(ls -l "/proc/$pid/fd" 2>/dev/null | grep "$debug_dir" | head -1 | awk '{print $NF}')
@@ -166,24 +292,12 @@ check_process_status() {
             mtime=$(get_file_mtime "$debug_file")
             if [ -n "$mtime" ]; then
                 local diff=$((current_time - mtime))
-                # 閾値内ならworking、超過ならidle
                 if [ "$diff" -lt "$WORKING_THRESHOLD" ]; then
                     echo "working"
-                    return
-                else
-                    echo "idle"
                     return
                 fi
             fi
         fi
-    fi
-
-    # フォールバック: CPU使用率で判定（5%以上ならworking、それ以下ならidle）
-    local cpu
-    cpu=$(ps -p "$pid" -o %cpu= 2>/dev/null | tr -d ' ' | cut -d. -f1)
-    if [ -n "$cpu" ] && [ "$cpu" -gt 5 ] 2>/dev/null; then
-        echo "working"
-        return
     fi
 
     # 全ての判定でworkingでない場合はidle
@@ -260,8 +374,8 @@ get_session_details() {
             name_counts[$project_name]=1
         fi
 
-        # 状態を取得
-        status=$(check_process_status "$pid")
+        # 状態を取得（ペインIDを渡す）
+        status=$(check_process_status "$pid" "$pane_id")
 
         # 詳細を追加
         if [ -n "$details" ]; then
