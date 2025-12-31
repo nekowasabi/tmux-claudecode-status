@@ -84,25 +84,28 @@ get_pane_name_for_pid() {
 get_project_name_for_pid() {
     local pid="$1"
     local max_length="${2:-18}"
-    local cwd_link="/proc/$pid/cwd"
     local project_name=""
+    local cwd=""
 
-    # /proc/PID/cwd から作業ディレクトリを取得
-    if [ -L "$cwd_link" ]; then
-        local cwd
-        cwd=$(readlink "$cwd_link" 2>/dev/null)
-        if [ -n "$cwd" ]; then
-            project_name=$(basename "$cwd")
+    # OS判定でcwd取得方法を分岐
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS: lsofでcwdを取得
+        cwd=$(lsof -p "$pid" 2>/dev/null | awk '$4 == "cwd" {print $9}')
+    else
+        # Linux: /proc/PID/cwdから取得
+        local cwd_link="/proc/$pid/cwd"
+        if [ -L "$cwd_link" ]; then
+            cwd=$(readlink "$cwd_link" 2>/dev/null)
+        fi
+        # フォールバック: pwdxコマンド
+        if [ -z "$cwd" ]; then
+            cwd=$(pwdx "$pid" 2>/dev/null | cut -d: -f2 | tr -d ' ')
         fi
     fi
 
-    # フォールバック: pwdx コマンドを使用
-    if [ -z "$project_name" ]; then
-        local cwd
-        cwd=$(pwdx "$pid" 2>/dev/null | cut -d: -f2 | tr -d ' ')
-        if [ -n "$cwd" ]; then
-            project_name=$(basename "$cwd")
-        fi
+    # cwdからプロジェクト名を抽出
+    if [ -n "$cwd" ] && [ "$cwd" != "/" ]; then
+        project_name=$(basename "$cwd")
     fi
 
     # 取得できない場合はデフォルト名
@@ -243,21 +246,29 @@ check_pane_activity() {
 # 戻り値: ~/.claude/projects/ 内のディレクトリパス（見つからない場合は空）
 get_project_session_dir() {
     local pid="$1"
-    local cwd_link="/proc/$pid/cwd"
+    local cwd=""
 
-    if [ -L "$cwd_link" ]; then
-        local cwd
-        cwd=$(readlink "$cwd_link" 2>/dev/null)
-        if [ -n "$cwd" ]; then
-            # cwdをClaude Codeのプロジェクトディレクトリ名形式に変換
-            # 例: /home/takets/repos/foo -> -home-takets-repos-foo
-            local encoded_dir
-            encoded_dir=$(echo "$cwd" | sed 's|^/||; s|/|-|g; s|^|-|')
-            local project_dir="$HOME/.claude/projects/$encoded_dir"
-            if [ -d "$project_dir" ]; then
-                echo "$project_dir"
-                return
-            fi
+    # OS判定でcwd取得方法を分岐
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS: lsofでcwdを取得
+        cwd=$(lsof -p "$pid" 2>/dev/null | awk '$4 == "cwd" {print $9}')
+    else
+        # Linux: /proc/PID/cwdから取得
+        local cwd_link="/proc/$pid/cwd"
+        if [ -L "$cwd_link" ]; then
+            cwd=$(readlink "$cwd_link" 2>/dev/null)
+        fi
+    fi
+
+    if [ -n "$cwd" ]; then
+        # cwdをClaude Codeのプロジェクトディレクトリ名形式に変換
+        # 例: /home/takets/repos/foo -> -home-takets-repos-foo
+        local encoded_dir
+        encoded_dir=$(echo "$cwd" | sed 's|^/||; s|/|-|g; s|^|-|')
+        local project_dir="$HOME/.claude/projects/$encoded_dir"
+        if [ -d "$project_dir" ]; then
+            echo "$project_dir"
+            return
         fi
     fi
 
@@ -269,7 +280,7 @@ get_project_session_dir() {
 # 戻り値: "working" または "idle"
 check_process_status() {
     local pid="$1"
-    local pane_id="$2"
+    local pane_id="${2:-}"  # オプショナル: デフォルト値を空文字に
     local current_time
     current_time=$(get_current_timestamp)
 
@@ -376,7 +387,7 @@ get_session_details() {
 
     local details=""
     local seen_pane_ids=""
-    declare -A name_counts  # プロジェクト名ごとのカウント
+    local seen_project_names=""  # "name:count|name:count|..." 形式
 
     for pid in $pids; do
         local pane_info pane_id project_name status
@@ -398,13 +409,20 @@ get_session_details() {
         # プロジェクト名を取得（作業ディレクトリ名）
         project_name=$(get_project_name_for_pid "$pid")
 
-        # プロジェクト名の出現回数をカウント
-        if [ -n "${name_counts[$project_name]:-}" ]; then
-            ((name_counts[$project_name]++))
+        # プロジェクト名の出現回数をカウント（Bash 3.x互換方式）
+        local current_count=0
+        if [[ "$seen_project_names" == *"|$project_name:"* ]]; then
+            # 既存のカウントを抽出
+            local pattern="${project_name}:"
+            local after="${seen_project_names#*|${pattern}}"
+            current_count="${after%%|*}"
+            ((current_count++))
+            # カウントを更新
+            seen_project_names="${seen_project_names/|${pattern}${after%%|*}|/|${pattern}${current_count}|}"
             # 同じ名前が既に存在する場合、番号を付ける
-            project_name="${project_name}#${name_counts[$project_name]}"
+            project_name="${project_name}#${current_count}"
         else
-            name_counts[$project_name]=1
+            seen_project_names+="|${project_name}:1|"
         fi
 
         # 状態を取得（ペインIDを渡す）
