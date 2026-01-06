@@ -10,12 +10,11 @@ source "$CURRENT_DIR/session_tracker.sh"
 DEFAULT_ICON=""                    # Nerd Font: robot
 DEFAULT_WORKING_DOT="🤖"
 DEFAULT_IDLE_DOT="🔔"
-# tmux 3.x requires hex colors without # prefix for #[fg=] syntax
-# idle=赤、working=緑
-DEFAULT_WORKING_COLOR="colour46"    # green (tmux colour46 ≈ #00ff00) - 作業中
-DEFAULT_IDLE_COLOR="colour196"      # red (tmux colour196 ≈ #ff0000) - アイドル
-DEFAULT_ICON_COLOR="colour135"      # purple (tmux colour135 ≈ #af5fff)
-DEFAULT_SEPARATOR=" | "             # ペイン間のセパレータ
+DEFAULT_SEPARATOR=" "              # セッション間のセパレータ
+DEFAULT_WORKING_COLOR=""           # 作業中の色（空の場合は色なし）
+DEFAULT_IDLE_COLOR=""              # アイドル中の色（空の場合は色なし）
+DEFAULT_LEFT_SEP=""                # 左側の囲み文字
+DEFAULT_RIGHT_SEP=""               # 右側の囲み文字
 
 # Terminal emoji priority for sorting
 # Priority: 🍎(iTerm)=1, ⚡(WezTerm)=2, 👻(Ghostty)=3, 🪟(Windows Terminal)=4, ❓(other)=5
@@ -66,11 +65,14 @@ main() {
     # Load user configuration
     local working_dot idle_dot working_color idle_color separator
     local show_terminal show_pane
+    local left_sep right_sep
     working_dot=$(get_tmux_option "@claudecode_working_dot" "$DEFAULT_WORKING_DOT")
     idle_dot=$(get_tmux_option "@claudecode_idle_dot" "$DEFAULT_IDLE_DOT")
     working_color=$(get_tmux_option "@claudecode_working_color" "$DEFAULT_WORKING_COLOR")
     idle_color=$(get_tmux_option "@claudecode_idle_color" "$DEFAULT_IDLE_COLOR")
     separator=$(get_tmux_option "@claudecode_separator" "$DEFAULT_SEPARATOR")
+    left_sep=$(get_tmux_option "@claudecode_left_sep" "$DEFAULT_LEFT_SEP")
+    right_sep=$(get_tmux_option "@claudecode_right_sep" "$DEFAULT_RIGHT_SEP")
     # 新オプション: ターミナル絵文字とペイン番号の表示制御
     show_terminal=$(get_tmux_option "@claudecode_show_terminal" "on")
     show_pane=$(get_tmux_option "@claudecode_show_pane" "on")
@@ -156,8 +158,17 @@ main() {
             output+="$separator"
         fi
 
-        # プレフィックス + プロジェクト名 + ドットを追加（例: "🍎#0 tmux-status... ●"）
-        output+="${prefix}${project_name} #[fg=$color]${dot}#[default]"
+        # 色に応じた形式を調整
+        local formatted_dot
+        if [ -n "$color" ]; then
+            formatted_dot="#[fg=$color]${dot}#[default]"
+        else
+            formatted_dot="${dot}"
+        fi
+
+        # プレフィックス + プロジェクト名 + ドットを追加（左右の囲み文字付き）
+        output+="${left_sep}${prefix}${project_name} ${formatted_dot}${right_sep}"
+        output+="$separator"
     done
 
     output+="  "  # Right margin

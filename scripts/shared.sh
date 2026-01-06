@@ -219,22 +219,22 @@ get_terminal_emoji() {
         fi
     fi
 
-    # 絵文字に変換
+    # 絵文字に変換（tmuxオプションから取得、設定がなければデフォルト値を使用）
     case "$terminal_name" in
         iTerm2|Terminal)
-            echo "🍎"
+            get_tmux_option "@claudecode_terminal_iterm" "🍎"
             ;;
         WezTerm)
-            echo "⚡"
+            get_tmux_option "@claudecode_terminal_wezterm" "⚡"
             ;;
         Ghostty)
-            echo "👻"
+            get_tmux_option "@claudecode_terminal_ghostty" "👻"
             ;;
         WindowsTerminal)
-            echo "🪟"
+            get_tmux_option "@claudecode_terminal_windows" "🪟"
             ;;
         *)
-            echo "❓"
+            get_tmux_option "@claudecode_terminal_unknown" "❓"
             ;;
     esac
 }

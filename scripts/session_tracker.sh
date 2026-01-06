@@ -23,11 +23,17 @@ CACHE_DIR="/tmp/claudecode_status_cache"
 get_claude_pids() {
     local pids
 
-    # 方法1: pgrep（最も確実・高速）
-    pids=$(pgrep -d ' ' "^claude$" 2>/dev/null)
+    # 方法1: psコマンドでプロセス名が正確に"claude"のものを取得
+    # macOSのpgrepは正規表現マッチングに問題があるためpsを優先使用
+    pids=$(ps -eo pid,comm 2>/dev/null | awk '$2 == "claude" {print $1}' | tr '\n' ' ')
 
     if [ -z "$pids" ]; then
-        # 方法2: ps経由（フォールバック）
+        # 方法2: pgrep（フォールバック）
+        pids=$(pgrep -d ' ' "claude" 2>/dev/null)
+    fi
+
+    if [ -z "$pids" ]; then
+        # 方法3: node経由のclaude（旧方式フォールバック）
         pids=$(ps aux 2>/dev/null | grep -E "[n]ode.*claude" | awk '{print $2}' | tr '\n' ' ')
     fi
 

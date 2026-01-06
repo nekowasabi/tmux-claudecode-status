@@ -62,28 +62,41 @@ set -g status-format[1] "#{claudecode_status}"
 
 | オプション | デフォルト | 説明 |
 |-----------|-----------|------|
-| `@claudecode_icon` | `  (Nerd Font robot)` | メインアイコン |
-| `@claudecode_working_dot` | `●` | working状態のドット |
-| `@claudecode_idle_dot` | `○` | idle状態のドット |
-| `@claudecode_working_color` | `#f97316` | working状態の色（オレンジ） |
-| `@claudecode_idle_color` | `#22c55e` | idle状態の色（グリーン） |
-| `@claudecode_icon_color` | `#a855f7` | アイコンの色（紫） |
+| `@claudecode_working_dot` | `🤖` | working状態のドット（ロボット絵文字） |
+| `@claudecode_idle_dot` | `🔔` | idle状態のドット（ベル絵文字） |
+| `@claudecode_working_color` | `""` (空) | working状態の色（空=tmuxデフォルト） |
+| `@claudecode_idle_color` | `""` (空) | idle状態の色（空=tmuxデフォルト） |
+| `@claudecode_separator` | `" "` | セッション間のセパレータ |
+| `@claudecode_left_sep` | `""` (空) | 左囲み文字 |
+| `@claudecode_right_sep` | `""` (空) | 右囲み文字 |
+| `@claudecode_show_terminal` | `on` | ターミナル絵文字の表示 |
+| `@claudecode_show_pane` | `on` | ペイン番号の表示 |
+| `@claudecode_terminal_iterm` | `🍎` | iTerm/Terminalの絵文字 |
+| `@claudecode_terminal_wezterm` | `⚡` | WezTermの絵文字 |
+| `@claudecode_terminal_ghostty` | `👻` | Ghosttyの絵文字 |
+| `@claudecode_terminal_windows` | `🪟` | Windows Terminalの絵文字 |
+| `@claudecode_terminal_unknown` | `❓` | 不明なターミナルの絵文字 |
 
 ### カスタマイズ例
 
 ```bash
-# アイコンを変更
-set -g @claudecode_icon ""
+# 囲み文字を追加
+set -g @claudecode_left_sep "["
+set -g @claudecode_right_sep "]"
+# 結果: [🍎#0 project-name 🤖]
 
-# ドット記号をカスタマイズ
-set -g @claudecode_working_dot "●"
-set -g @claudecode_idle_dot "○"
+# ターミナル絵文字をカスタマイズ
+set -g @claudecode_terminal_iterm "🖥️"
+set -g @claudecode_terminal_wezterm "W"
 
-# 色を変更
-set -g @claudecode_working_color "#ff0000"  # 赤
-set -g @claudecode_idle_color "#00ff00"    # 緑
-set -g @claudecode_icon_color "#0000ff"    # 青
+# 色をカスタマイズ（任意）
+set -g @claudecode_working_color "#f97316"
+set -g @claudecode_idle_color "#22c55e"
 ```
+
+### 色設定について
+
+色設定はデフォルトで空（tmuxテーマの色を継承）です。必要に応じて設定してください。
 
 ## 動作仕組み
 
