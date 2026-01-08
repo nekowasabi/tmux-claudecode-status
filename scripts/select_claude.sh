@@ -15,6 +15,9 @@ CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$CURRENT_DIR/shared.sh"
 source "$CURRENT_DIR/session_tracker.sh"
 
+# バッチ処理キャッシュを初期化（高速化のため）
+init_batch_cache
+
 # Check for WSL environment
 if grep -qEi "(microsoft|wsl)" /proc/version 2>/dev/null; then
     echo "This feature is not supported on WSL" >&2
@@ -29,6 +32,7 @@ STATUS_IDLE="idle"
 
 # Generate list of Claude Code processes for fzf
 # Output format: pane_id|terminal_emoji|pane_index|project_name|status|display_line
+# 最適化版: バッチ取得したキャッシュを使用してps/tmux呼び出しを最小化
 generate_process_list() {
     local pids
     pids=$(get_claude_pids)
@@ -37,20 +41,28 @@ generate_process_list() {
         return
     fi
 
+    # lsofをバッチで実行（macOSのみ）
+    if [[ "$(uname)" == "Darwin" ]]; then
+        local pid_list
+        pid_list=$(echo "$pids" | tr ' ' ',' | sed 's/,$//')
+        init_lsof_cache "$pid_list"
+    fi
+
     local seen_pane_ids=""
     local seen_project_names=""
 
     for pid in $pids; do
         local pane_info pane_id pane_index project_name status terminal_emoji
 
-        # Get pane info
-        pane_info=$(get_pane_info_for_pid "$pid")
+        # Get pane info（バッチ版を使用）
+        pane_info=$(get_pane_info_for_pid_cached "$pid")
         if [ -z "$pane_info" ]; then
             pane_id="unknown_$$_$pid"
             pane_index=""
         else
             pane_id="${pane_info%%:*}"
-            pane_index=$(get_pane_index "$pane_id")
+            # Get pane index（バッチ版を使用）
+            pane_index=$(get_pane_index_cached "$pane_id")
         fi
 
         # Skip duplicates
@@ -59,11 +71,11 @@ generate_process_list() {
         fi
         seen_pane_ids+="|$pane_id|"
 
-        # Get terminal emoji
-        terminal_emoji=$(get_terminal_emoji "$pid" "$pane_id")
+        # Get terminal emoji（バッチ版を使用）
+        terminal_emoji=$(get_terminal_emoji_cached "$pid" "$pane_id")
 
-        # Get project name
-        project_name=$(get_project_name_for_pid "$pid")
+        # Get project name（バッチ版を使用）
+        project_name=$(get_project_name_for_pid_cached "$pid")
 
         # Handle duplicate project names
         local current_count=0
@@ -91,9 +103,9 @@ generate_process_list() {
             status_display="$status_icon"
         fi
 
-        # Get session name for additional context
+        # Get session name for additional context（バッチ版を使用）
         local session_name
-        session_name=$(tmux display-message -p -t "$pane_id" '#{session_name}' 2>/dev/null)
+        session_name=$(get_session_name_cached "$pane_id")
 
         # Format display line
         # Format: terminal pane_index project_name [session] status

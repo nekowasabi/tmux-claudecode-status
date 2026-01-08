@@ -72,6 +72,35 @@ get_pane_info_for_pid() {
     echo ""
 }
 
+# バッチ版: PIDからtmuxペイン情報を取得（キャッシュ使用）
+# $1: PID
+# 戻り値: "pane_id:pane_name" または空文字列（見つからない場合）
+get_pane_info_for_pid_cached() {
+    local target_pid="$1"
+
+    # キャッシュが初期化されていない場合は元の関数を使用
+    if [ "$BATCH_INITIALIZED" != "1" ]; then
+        get_pane_info_for_pid "$target_pid"
+        return
+    fi
+
+    # 直接マッピングからpane_idを取得（O(1)相当）
+    local pane_id
+    pane_id=$(get_pane_id_for_pid_direct "$target_pid")
+
+    if [ -n "$pane_id" ]; then
+        # ペイン名をキャッシュから取得
+        local pane_name
+        pane_name=$(get_window_name_cached "$pane_id")
+        if [ -n "$pane_name" ]; then
+            echo "${pane_id}:${pane_name}"
+            return
+        fi
+    fi
+
+    echo ""
+}
+
 # 後方互換性のためのラッパー
 get_pane_name_for_pid() {
     local info
@@ -127,6 +156,60 @@ get_project_name_for_pid() {
     echo "$project_name"
 }
 
+# バッチ版: PIDからプロジェクト名（作業ディレクトリ名）を取得（キャッシュ使用）
+# $1: PID
+# $2: 最大文字数（デフォルト: 18）
+# 戻り値: プロジェクト名（長い場合は省略）
+get_project_name_for_pid_cached() {
+    local pid="$1"
+    local max_length="${2:-18}"
+    local project_name=""
+    local cwd=""
+
+    # キャッシュが初期化されていない場合は元の関数を使用
+    if [ "$BATCH_INITIALIZED" != "1" ]; then
+        get_project_name_for_pid "$pid" "$max_length"
+        return
+    fi
+
+    # OS判定でcwd取得方法を分岐
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS: キャッシュからcwdを取得
+        cwd=$(get_cwd_from_lsof_cache "$pid")
+        # キャッシュにない場合はフォールバック
+        if [ -z "$cwd" ]; then
+            cwd=$(lsof -d cwd -p "$pid" -F n 2>/dev/null | awk '/^n/ {print substr($0, 2); exit}')
+        fi
+    else
+        # Linux: /proc/PID/cwdから取得
+        local cwd_link="/proc/$pid/cwd"
+        if [ -L "$cwd_link" ]; then
+            cwd=$(readlink "$cwd_link" 2>/dev/null)
+        fi
+        # フォールバック: pwdxコマンド
+        if [ -z "$cwd" ]; then
+            cwd=$(pwdx "$pid" 2>/dev/null | cut -d: -f2 | tr -d ' ')
+        fi
+    fi
+
+    # cwdからプロジェクト名を抽出
+    if [ -n "$cwd" ] && [ "$cwd" != "/" ]; then
+        project_name=$(basename "$cwd")
+    fi
+
+    # 取得できない場合はデフォルト名
+    if [ -z "$project_name" ] || [ "$project_name" = "/" ]; then
+        project_name="claude"
+    fi
+
+    # 長すぎる場合は省略
+    if [ "${#project_name}" -gt "$max_length" ]; then
+        project_name="${project_name:0:$((max_length - 3))}..."
+    fi
+
+    echo "$project_name"
+}
+
 # プロセスが別のプロセスの子孫かを確認
 # $1: チェック対象PID
 # $2: 祖先候補PID
@@ -147,6 +230,44 @@ is_descendant_of() {
     while [ "$depth" -lt "$max_depth" ]; do
         local ppid
         ppid=$(ps -o ppid= -p "$current_pid" 2>/dev/null | tr -d ' ')
+
+        # 親が取得できない or PID 1 に到達
+        if [ -z "$ppid" ] || [ "$ppid" = "1" ] || [ "$ppid" = "0" ]; then
+            return 1
+        fi
+
+        # 祖先候補と一致
+        if [ "$ppid" = "$ancestor_pid" ]; then
+            return 0
+        fi
+
+        current_pid="$ppid"
+        ((depth++))
+    done
+
+    return 1
+}
+
+# バッチ版: プロセスが別のプロセスの子孫かを確認（キャッシュ使用）
+# $1: チェック対象PID
+# $2: 祖先候補PID
+# 戻り値: 0 (子孫), 1 (非子孫)
+is_descendant_of_cached() {
+    local check_pid="$1"
+    local ancestor_pid="$2"
+    local current_pid="$check_pid"
+
+    # 同一の場合はtrue
+    if [ "$current_pid" = "$ancestor_pid" ]; then
+        return 0
+    fi
+
+    # 親プロセスを辿る（最大20階層）- キャッシュ版ppid取得を使用
+    local max_depth=20
+    local depth=0
+    while [ "$depth" -lt "$max_depth" ]; do
+        local ppid
+        ppid=$(get_ppid_cached "$current_pid")
 
         # 親が取得できない or PID 1 に到達
         if [ -z "$ppid" ] || [ "$ppid" = "1" ] || [ "$ppid" = "0" ]; then
