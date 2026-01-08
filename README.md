@@ -6,7 +6,7 @@ A tmux plugin that displays Claude Code's execution status in real-time on the s
 
 - **Multiple Session Support**: Track multiple Claude Code processes simultaneously
 - **State Differentiation**: Distinguish between working and idle states with colors
-- **Lightweight & Fast**: Cache functionality enables high speed even with per-second execution (< 50ms)
+- **Lightweight & Fast**: Optimized performance with cache functionality and TTY-based change detection (< 50ms)
 - **Customizable**: Customize icons, colors, and dot symbols
 - **Cross-Platform**: Supports Linux/macOS
 
@@ -112,11 +112,18 @@ Color settings are empty by default (inheriting tmux theme colors). Configure as
 
 ### Process Selector Feature
 
-The process selector allows you to quickly switch between multiple Claude Code sessions using fzf.
+The process selector allows you to quickly switch between multiple Claude Code sessions using fzf. This feature is particularly useful when running multiple Claude Code instances simultaneously across different projects.
 
 **Requirements:**
 - fzf (install with `brew install fzf` on macOS or `apt install fzf` on Ubuntu)
 - tmux 3.2+ for popup support (older versions use split-window fallback)
+
+**Features:**
+- **Interactive Selection**: Use fzf to search and select from running Claude Code processes
+- **Status Display**: Shows working/idle status of each process
+- **Terminal Awareness**: Displays which terminal application each process is running in (Terminal.app, iTerm2, Ghostty, etc.)
+- **Automatic Focus**: Automatically switches focus to the selected process and its tmux pane
+- **Status Priority**: Sorts processes with working status first, followed by idle processes
 
 **Setup:**
 ```bash
@@ -124,19 +131,48 @@ The process selector allows you to quickly switch between multiple Claude Code s
 set -g @claudecode_select_key "C-j"
 ```
 
-**Usage:**
+**Usage - Keybinding Mode:**
 1. Press `prefix + Ctrl-j` (or your configured key) to open the selector
-2. Use fzf to filter and select a Claude Code process
-3. The selected process's terminal will be activated and focused
+2. Start typing to filter processes by project name or terminal type
+3. Navigate with arrow keys and press Enter to select
+4. The selected process's terminal will be activated and the corresponding tmux pane will be focused
 
-**Command Line Usage:**
+**Usage - Command Line:**
 ```bash
-# Interactive selection
+# Interactive selection with fzf
 ~/.tmux/plugins/tmux-claudecode-status/scripts/select_claude.sh
 
-# List all Claude Code processes
+# List mode - print all processes without fzf
 ~/.tmux/plugins/tmux-claudecode-status/scripts/select_claude.sh --list
 ```
+
+**Example Output:**
+```
+🍎 #0 my-project [session-1] 🤖
+🖥️ #1 web-app [session-2] 🤖
+⚡ #2 cli-tool [session-3] 🔔
+```
+
+**Advanced Configuration:**
+```bash
+# Customize keybinding
+set -g @claudecode_select_key "C-g"
+
+# Customize fzf appearance
+set -g @claudecode_fzf_opts "--height=50% --reverse --border --prompt='🤖 Select: '"
+
+# Use with custom colors
+set -g @claudecode_working_color "#f97316"
+set -g @claudecode_idle_color "#22c55e"
+```
+
+**How it Works:**
+1. Scans for running Claude Code processes using `pgrep`
+2. Retrieves process metadata including TTY path, working directory, and terminal application
+3. Determines status (working/idle) by checking TTY modification time
+4. Sorts by status and terminal priority
+5. Displays formatted list with terminal emoji, pane number, project name, and status
+6. On selection, activates the terminal application and focuses the corresponding tmux pane
 
 ## How It Works
 

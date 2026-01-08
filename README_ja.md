@@ -6,7 +6,7 @@ tmuxのステータスバーにClaude Codeの実行状態をリアルタイム�
 
 - **複数セッション対応**: 複数のClaude Codeプロセスを同時に追跡
 - **状態区別**: working（作業中）とidle（待機中）を色で区別
-- **軽量・高速**: キャッシュ機能により毎秒の実行でも高速（< 50ms）
+- **軽量・高速**: キャッシュ機能とTTYベースの変化検出により最適化されたパフォーマンス（< 50ms）
 - **カスタマイズ可能**: アイコン・色・ドット記号をカスタマイズ可能
 - **クロスプラットフォーム対応**: Linux/macOS対応
 
@@ -77,6 +77,8 @@ set -g status-format[1] "#{claudecode_status}"
 | `@claudecode_terminal_windows` | `🪟` | Windows Terminalの絵文字 |
 | `@claudecode_terminal_unknown` | `❓` | 不明なターミナルの絵文字 |
 | `@claudecode_working_threshold` | `30` | working/idle判定の閾値（秒） |
+| `@claudecode_select_key` | `""` (空) | プロセス選択機能を開くキーバインド（例: `C-g`） |
+| `@claudecode_fzf_opts` | `"--height=40% --reverse --border --prompt='Select Claude: '"` | プロセス選択機能用のfzfオプション |
 
 ### カスタマイズ例
 
@@ -93,6 +95,12 @@ set -g @claudecode_terminal_wezterm "W"
 # working/idle判定の閾値を変更（デフォルト: 30秒）
 set -g @claudecode_working_threshold "10"
 
+# プロセス選択機能を有効化（requires fzf）
+set -g @claudecode_select_key "C-j"  # prefix + Ctrl-j to open selector
+
+# プロセス選択機能用のfzfオプションをカスタマイズ
+set -g @claudecode_fzf_opts "--height=50% --reverse --border --prompt='Claude> '"
+
 # 色をカスタマイズ（任意）
 set -g @claudecode_working_color "#f97316"
 set -g @claudecode_idle_color "#22c55e"
@@ -101,6 +109,70 @@ set -g @claudecode_idle_color "#22c55e"
 ### 色設定について
 
 色設定はデフォルトで空（tmuxテーマの色を継承）です。必要に応じて設定してください。
+
+### プロセス選択機能
+
+プロセス選択機能により、fzfを使用して複数のClaude Codeセッションを素早く切り替えることができます。この機能は、複数のClaude Codeインスタンスを異なるプロジェクトで同時に実行している場合に特に便利です。
+
+**必要環境:**
+- fzf（macOSでは `brew install fzf`、Ubuntuでは `apt install fzf` でインストール）
+- tmux 3.2+ （ポップアップサポート用、古いバージョンではsplit-windowフォールバック使用）
+
+**主な機能:**
+- **対話的選択**: fzfを使用してClaude Codeプロセスを検索・選択
+- **ステータス表示**: 各プロセスのworking/idle状態を表示
+- **ターミナル認識**: 各プロセスが実行されているターミナルアプリケーション（Terminal.app、iTerm2、Ghosttyなど）を表示
+- **自動フォーカス**: 選択したプロセスのターミナルを自動で切り替え、対応するtmuxペインにフォーカス
+- **優先度ソート**: working状態のプロセスを最初に表示し、その後idle状態のプロセスを表示
+
+**セットアップ:**
+```bash
+# キーバインドでプロセス選択機能を有効化
+set -g @claudecode_select_key "C-j"
+```
+
+**使い方 - キーバインドモード:**
+1. `prefix + Ctrl-j`（または設定したキー）を押してセレクタを開く
+2. プロジェクト名またはターミナルタイプで絞り込むために文字を入力
+3. 矢印キーで移動し、Enterキーを押して選択
+4. 選択したプロセスのターミナルが有効になり、対応するtmuxペインにフォーカスが移動
+
+**使い方 - コマンドライン:**
+```bash
+# fzfを使用した対話的選択
+~/.tmux/plugins/tmux-claudecode-status/scripts/select_claude.sh
+
+# リストモード - fzfなしですべてのプロセスを出力
+~/.tmux/plugins/tmux-claudecode-status/scripts/select_claude.sh --list
+```
+
+**出力例:**
+```
+🍎 #0 my-project [session-1] 🤖
+🖥️ #1 web-app [session-2] 🤖
+⚡ #2 cli-tool [session-3] 🔔
+```
+
+**詳細設定:**
+```bash
+# キーバインドをカスタマイズ
+set -g @claudecode_select_key "C-g"
+
+# fzfの表示をカスタマイズ
+set -g @claudecode_fzf_opts "--height=50% --reverse --border --prompt='🤖 Select: '"
+
+# カスタムカラーを使用
+set -g @claudecode_working_color "#f97316"
+set -g @claudecode_idle_color "#22c55e"
+```
+
+**動作原理:**
+1. `pgrep`を使用して実行中のClaude Codeプロセスをスキャン
+2. TTYパス、作業ディレクトリ、ターミナルアプリケーションを含むプロセスメタデータを取得
+3. TTY変更時刻をチェックしてステータス（working/idle）を決定
+4. ステータスとターミナル優先度でソート
+5. ターミナルを示す絵文字、ペイン番号、プロジェクト名、ステータスを含むフォーマット済みリストを表示
+6. 選択時に、ターミナルアプリケーションを有効にし、対応するtmuxペインにフォーカス
 
 ## 動作仕組み
 
@@ -187,7 +259,9 @@ tmux-claudecode-status/
 ├── scripts/
 │   ├── shared.sh               # 共通ユーティリティ
 │   ├── session_tracker.sh       # セッション追跡ロジック
-│   └── claudecode_status.sh     # メイン出力スクリプト
+│   ├── claudecode_status.sh     # メイン出力スクリプト
+│   ├── select_claude.sh         # プロセス選択UI（fzf）
+│   └── focus_session.sh         # ターミナルフォーカス & ペイン切り替え
 ├── tests/
 │   ├── test_detection.sh        # 検出機能テスト
 │   ├── test_status.sh           # ステータス判定テスト
