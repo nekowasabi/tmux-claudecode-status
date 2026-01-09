@@ -13,13 +13,15 @@
 
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$CURRENT_DIR/shared.sh"
-source "$CURRENT_DIR/session_tracker.sh"
 
 # バッチ処理キャッシュを初期化（高速化のため）
 init_batch_cache
 
 # 高速判定モードを有効化（TTY mtimeベースの軽量判定）
 FAST_MODE=1
+
+# working判定の閾値（秒）- TTY mtimeがこの秒数以内ならworking
+WORKING_THRESHOLD="${CLAUDECODE_WORKING_THRESHOLD:-5}"
 
 # Check for WSL environment
 if grep -qEi "(microsoft|wsl)" /proc/version 2>/dev/null; then
@@ -35,7 +37,7 @@ STATUS_IDLE="idle"
 
 # Generate list of Claude Code processes for fzf
 # Output format: pane_id|terminal_emoji|pane_index|project_name|status|display_line
-# 超高速版: 1回のawk呼び出しで全情報を取得
+# 超高速版: 1回のawk呼び出しで全情報を取得（bashのwhileループを完全排除）
 generate_process_list() {
     # 一括取得した情報を処理
     local batch_info
@@ -45,120 +47,154 @@ generate_process_list() {
         return
     fi
 
-    local seen_pane_ids=""
-    local seen_project_names=""
+    # ステータスアイコンとターミナル絵文字を一括取得（6回のawk呼び出しを1回に削減）
+    local working_dot idle_dot terminal_iterm terminal_wezterm terminal_ghostty terminal_unknown
+    eval "$(get_tmux_options_bulk \
+        "@claudecode_working_dot=working" \
+        "@claudecode_idle_dot=idle" \
+        "@claudecode_terminal_iterm=🍎" \
+        "@claudecode_terminal_wezterm=⚡" \
+        "@claudecode_terminal_ghostty=👻" \
+        "@claudecode_terminal_unknown=❓")"
+
+    # 現在時刻を取得
     local current_time
     current_time=$(get_current_timestamp)
 
-    # ステータスアイコンを事前取得
-    local working_icon idle_icon
-    working_icon=$(get_tmux_option_cached "@claudecode_working_dot" "working")
-    idle_icon=$(get_tmux_option_cached "@claudecode_idle_dot" "idle")
+    # WORKING_THRESHOLDのデフォルト値
+    local threshold="${WORKING_THRESHOLD:-5}"
 
-    # ターミナル絵文字マッピングを事前取得
-    local emoji_iterm emoji_wezterm emoji_ghostty emoji_unknown
-    emoji_iterm=$(get_tmux_option_cached "@claudecode_terminal_iterm" "🍎")
-    emoji_wezterm=$(get_tmux_option_cached "@claudecode_terminal_wezterm" "⚡")
-    emoji_ghostty=$(get_tmux_option_cached "@claudecode_terminal_ghostty" "👻")
-    emoji_unknown=$(get_tmux_option_cached "@claudecode_terminal_unknown" "❓")
+    # TTY mtime情報はinit_batch_cacheで事前取得済み（BATCH_TTY_STAT_FILE）
+    # awkで一括処理（bashのwhileループを完全排除）
+    {
+        if [ -n "$BATCH_TTY_STAT_FILE" ] && [ -f "$BATCH_TTY_STAT_FILE" ]; then
+            cat "$BATCH_TTY_STAT_FILE"
+            echo "---SEPARATOR---"
+        fi
+        echo "$batch_info"
+    } | awk -F'|' \
+        -v working_icon="$working_dot" \
+        -v idle_icon="$idle_dot" \
+        -v emoji_iterm="$terminal_iterm" \
+        -v emoji_wezterm="$terminal_wezterm" \
+        -v emoji_ghostty="$terminal_ghostty" \
+        -v emoji_unknown="$terminal_unknown" \
+        -v current_time="$current_time" \
+        -v threshold="$threshold" \
+    '
+    BEGIN {
+        in_data = 0
+    }
+    # セパレーター前はTTY mtime情報
+    /^---SEPARATOR---$/ {
+        in_data = 1
+        next
+    }
+    !in_data {
+        # TTY mtime情報: "/dev/ttysXXX mtime"
+        split($0, parts, " ")
+        tty_mtime[parts[1]] = parts[2]
+        next
+    }
+    {
+        pane_id = $2
+        session_name = $3
+        window_index = $4
+        tty_path = $5
+        terminal_name = $6
+        cwd = $7
 
-    while IFS='|' read -r pid pane_id session_name window_index tty_path terminal_name cwd; do
-        [ -z "$pane_id" ] && continue
+        if (pane_id == "") next
 
         # Skip duplicates
-        if [[ "$seen_pane_ids" == *"|$pane_id|"* ]]; then
-            continue
-        fi
-        seen_pane_ids+="|$pane_id|"
+        if (pane_id in seen_panes) next
+        seen_panes[pane_id] = 1
 
         # Terminal emoji変換
-        local terminal_emoji
-        case "$terminal_name" in
-            iTerm2|Terminal) terminal_emoji="$emoji_iterm" ;;
-            WezTerm) terminal_emoji="$emoji_wezterm" ;;
-            Ghostty) terminal_emoji="$emoji_ghostty" ;;
-            *) terminal_emoji="$emoji_unknown" ;;
-        esac
+        if (terminal_name == "iTerm2" || terminal_name == "Terminal") {
+            terminal_emoji = emoji_iterm
+        } else if (terminal_name == "WezTerm") {
+            terminal_emoji = emoji_wezterm
+        } else if (terminal_name == "Ghostty") {
+            terminal_emoji = emoji_ghostty
+        } else {
+            terminal_emoji = emoji_unknown
+        }
 
         # Pane index
-        local pane_index="#${window_index}"
+        pane_index = "#" window_index
 
         # Project name（cwdから抽出）
-        local project_name="${cwd##*/}"
-        [ -z "$project_name" ] || [ "$project_name" = "/" ] && project_name="claude"
+        n = split(cwd, path_parts, "/")
+        project_name = path_parts[n]
+        if (project_name == "" || project_name == "/") project_name = "claude"
 
         # 長すぎる場合は省略
-        if [ "${#project_name}" -gt 18 ]; then
-            project_name="${project_name:0:15}..."
-        fi
+        if (length(project_name) > 18) {
+            project_name = substr(project_name, 1, 15) "..."
+        }
 
         # Handle duplicate project names
-        local current_count=0
-        if [[ "$seen_project_names" == *"|$project_name:"* ]]; then
-            local pattern="${project_name}:"
-            local after="${seen_project_names#*|${pattern}}"
-            current_count="${after%%|*}"
-            ((current_count++))
-            seen_project_names="${seen_project_names/|${pattern}${after%%|*}|/|${pattern}${current_count}|}"
-            project_name="${project_name}#${current_count}"
-        else
-            seen_project_names+="|${project_name}:1|"
-        fi
+        if (project_name in project_counts) {
+            project_counts[project_name]++
+            project_name = project_name "#" project_counts[project_name]
+        } else {
+            project_counts[project_name] = 1
+        }
 
         # Status判定（TTY mtimeベース）
-        local status="idle"
-        if [ -n "$tty_path" ] && [ -e "$tty_path" ]; then
-            local tty_mtime
-            tty_mtime=$(get_file_mtime "$tty_path")
-            if [ -n "$tty_mtime" ]; then
-                local diff=$((current_time - tty_mtime))
-                [ "$diff" -lt "$WORKING_THRESHOLD" ] && status="working"
-            fi
-        fi
+        status = "idle"
+        if (tty_path != "" && tty_path in tty_mtime) {
+            diff = current_time - tty_mtime[tty_path]
+            if (diff < threshold) status = "working"
+        }
 
         # Status display
-        local status_display
-        [ "$status" = "working" ] && status_display="$working_icon" || status_display="$idle_icon"
+        status_display = (status == "working") ? working_icon : idle_icon
 
         # Format display line
-        local display_line="${terminal_emoji} ${pane_index} ${project_name}"
-        [ -n "$session_name" ] && display_line+=" [$session_name]"
-        display_line+=" ${status_display}"
+        display_line = terminal_emoji " " pane_index " " project_name
+        if (session_name != "") display_line = display_line " [" session_name "]"
+        display_line = display_line " " status_display
 
         # Output: pane_id|terminal_emoji|pane_index|project_name|status|display_line
-        echo "${pane_id}|${terminal_emoji}|${pane_index}|${project_name}|${status}|${display_line}"
-    done <<< "$batch_info"
+        print pane_id "|" terminal_emoji "|" pane_index "|" project_name "|" status "|" display_line
+    }
+    '
 }
 
 # Sort process list by status (working first) and terminal priority
+# 高速版: awkでソートキーを付与し、sortで一括処理
 sort_process_list() {
-    # Read stdin and sort
-    while IFS='|' read -r pane_id terminal_emoji pane_index project_name status display_line; do
-        local status_priority terminal_priority pane_num
+    awk -F'|' '
+    {
+        pane_id = $1
+        terminal_emoji = $2
+        pane_index = $3
+        project_name = $4
+        status = $5
+        display_line = $6
 
         # Status priority (working=0, idle=1)
-        if [ "$status" = "working" ]; then
-            status_priority=0
-        else
-            status_priority=1
-        fi
+        status_priority = (status == "working") ? 0 : 1
 
         # Terminal priority
-        case "$terminal_emoji" in
-            *) terminal_priority=$(get_terminal_priority "$terminal_emoji") ;;
-        esac
+        if (index(terminal_emoji, "🍎") > 0) terminal_priority = 1
+        else if (index(terminal_emoji, "⚡") > 0) terminal_priority = 2
+        else if (index(terminal_emoji, "👻") > 0) terminal_priority = 3
+        else if (index(terminal_emoji, "🪟") > 0) terminal_priority = 4
+        else terminal_priority = 5
 
         # Pane number
-        pane_num="${pane_index#\#}"
-        if ! [[ "$pane_num" =~ ^[0-9]+$ ]]; then
-            pane_num=999
-        fi
+        pane_num = substr(pane_index, 2)
+        if (pane_num !~ /^[0-9]+$/) pane_num = 999
 
         # Output with sort key
-        printf '%d:%d:%03d|%s|%s|%s|%s|%s|%s\n' \
-            "$status_priority" "$terminal_priority" "$pane_num" \
-            "$pane_id" "$terminal_emoji" "$pane_index" "$project_name" "$status" "$display_line"
-    done | sort -t: -k1,1n -k2,2n -k3,3n | cut -d'|' -f2-
+        printf "%d:%d:%03d|%s|%s|%s|%s|%s|%s\n", \
+            status_priority, terminal_priority, pane_num, \
+            pane_id, terminal_emoji, pane_index, project_name, status, display_line
+    }
+    ' | sort -t: -k1,1n -k2,2n -k3,3n | cut -d'|' -f2-
 }
 
 # Run fzf selection
@@ -197,7 +233,8 @@ run_fzf_selection() {
 
     # Get fzf options from tmux（キャッシュ版を使用）
     local fzf_opts
-    fzf_opts=$(get_tmux_option_cached "@claudecode_fzf_opts" "--height=40% --reverse --border --prompt=Select\\ Claude:\\ ")
+    # Note: --border removed because tmux popup already provides a border
+    fzf_opts=$(get_tmux_option_cached "@claudecode_fzf_opts" "--height=100% --reverse --prompt=Select\\ Claude:\\ ")
 
     # Run fzf
     local selected

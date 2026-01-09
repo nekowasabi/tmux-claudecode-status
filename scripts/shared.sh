@@ -22,6 +22,7 @@ BATCH_LSOF_OUTPUT_FILE=""
 BATCH_TERMINAL_CACHE_FILE=""
 BATCH_TMUX_OPTIONS_FILE=""
 BATCH_CLIENTS_CACHE_FILE=""
+BATCH_TTY_STAT_FILE=""
 BATCH_INITIALIZED=0
 
 # ==============================================================================
@@ -33,6 +34,7 @@ BATCH_PID_PANE_MAP_FILE=""
 
 # バッチ処理の初期化（全キャッシュを一度に作成）
 # select_claude.sh の先頭で呼び出し
+# 高速化: ps/lsof/tmuxコマンドを最大限並列実行
 init_batch_cache() {
     if [ "$BATCH_INITIALIZED" = "1" ]; then
         return 0
@@ -48,43 +50,86 @@ init_batch_cache() {
     BATCH_PID_PANE_MAP_FILE="$batch_dir/pidmap"
     BATCH_TMUX_OPTIONS_FILE="$batch_dir/opts"
     BATCH_CLIENTS_CACHE_FILE="$batch_dir/clients"
+    BATCH_TTY_STAT_FILE="$batch_dir/ttystat"
 
-    # プロセスツリーを取得（1回の ps 呼び出し）
-    ps -eo pid,ppid,comm 2>/dev/null > "$BATCH_PROCESS_TREE_FILE"
+    # ========================================
+    # Phase 1: 外部コマンドを並列実行（約100ms削減）
+    # ========================================
 
-    # tmuxペイン情報を取得（1回の tmux 呼び出し）
+    # プロセスツリーを取得（バックグラウンド）
+    ps -eo pid,ppid,comm 2>/dev/null > "$BATCH_PROCESS_TREE_FILE" &
+    local ps_pid=$!
+
+    # tmuxペイン情報を取得（バックグラウンド）
     # タブ区切りで出力（$'\t' を使用してリテラルタブを挿入）
     # window_name も追加取得
-    tmux list-panes -a -F "#{pane_id}"$'\t'"#{pane_pid}"$'\t'"#{session_name}"$'\t'"#{window_index}"$'\t'"#{pane_index}"$'\t'"#{pane_tty}"$'\t'"#{window_name}" 2>/dev/null > "$BATCH_PANE_INFO_FILE"
+    tmux list-panes -a -F "#{pane_id}"$'\t'"#{pane_pid}"$'\t'"#{session_name}"$'\t'"#{window_index}"$'\t'"#{pane_index}"$'\t'"#{pane_tty}"$'\t'"#{window_name}" 2>/dev/null > "$BATCH_PANE_INFO_FILE" &
+    local panes_pid=$!
 
-    # tmuxオプションをバッチ取得（@claudecode_* オプション）
-    tmux show-options -g 2>/dev/null | grep "^@claudecode" > "$BATCH_TMUX_OPTIONS_FILE"
+    # tmuxオプションをバッチ取得（バックグラウンド）
+    tmux show-options -g 2>/dev/null | grep "^@claudecode" > "$BATCH_TMUX_OPTIONS_FILE" &
+    local opts_pid=$!
 
-    # tmuxクライアント情報をバッチ取得（セッション -> TTY マッピング）
-    tmux list-clients -F "#{client_session}"$'\t'"#{client_tty}"$'\t'"#{client_pid}" 2>/dev/null > "$BATCH_CLIENTS_CACHE_FILE"
+    # tmuxクライアント情報をバッチ取得（バックグラウンド）
+    tmux list-clients -F "#{client_session}"$'\t'"#{client_tty}"$'\t'"#{client_pid}" 2>/dev/null > "$BATCH_CLIENTS_CACHE_FILE" &
+    local clients_pid=$!
+
+    # 全ての並列処理を待機
+    wait $ps_pid $panes_pid $opts_pid $clients_pid
+
+    # ========================================
+    # Phase 2: ps依存処理を並列実行（約80ms削減）
+    # ========================================
+
+    # lsofとpid_pane_mapを並列で実行
+    local lsof_pid=""
+    if [[ "$(get_os)" == "Darwin" ]]; then
+        # プロセスツリーから "claude" コマンドのPIDを抽出してlsof実行
+        {
+            local claude_pids
+            claude_pids=$(awk '$3 == "claude" { print $1 }' "$BATCH_PROCESS_TREE_FILE" | tr '\n' ',' | sed 's/,$//')
+            if [ -n "$claude_pids" ]; then
+                lsof -a -d cwd -p "$claude_pids" 2>/dev/null > "$BATCH_LSOF_OUTPUT_FILE"
+            else
+                touch "$BATCH_LSOF_OUTPUT_FILE"
+            fi
+        } &
+        lsof_pid=$!
+    fi
 
     # PID -> pane_id マッピングを構築（一度のawk処理で全プロセスツリーを解析）
-    _build_pid_pane_map
+    _build_pid_pane_map &
+    local pidmap_pid=$!
 
-    # macOSの場合、Claude PIDsのlsof結果をバッチ取得
+    # ターミナル検出を事前実行（セッション単位でキャッシュ）- 並列実行
+    local termcache_pid=""
     if [[ "$(get_os)" == "Darwin" ]]; then
-        # プロセスツリーから "claude" コマンドのPIDを抽出
-        local claude_pids
-        claude_pids=$(awk '$3 == "claude" { print $1 }' "$BATCH_PROCESS_TREE_FILE" | tr '\n' ',' | sed 's/,$//')
-        if [ -n "$claude_pids" ]; then
-            init_lsof_cache "$claude_pids"
-        fi
+        _prebuild_terminal_cache &
+        termcache_pid=$!
     fi
+
+    # TTY mtime を一括取得（pane情報から全TTYパスを抽出してstat）- 並列実行
+    local ttystat_pid=""
+    if [[ "$(get_os)" == "Darwin" ]]; then
+        {
+            # pane情報の6列目がTTYパス
+            awk -F'\t' '{print $6}' "$BATCH_PANE_INFO_FILE" 2>/dev/null | \
+                grep -v '^$' | sort -u | \
+                xargs stat -f "%N %m" 2>/dev/null > "$BATCH_TTY_STAT_FILE"
+        } &
+        ttystat_pid=$!
+    fi
+
+    # Phase 2の並列処理を待機
+    wait $pidmap_pid
+    [ -n "$lsof_pid" ] && wait $lsof_pid
+    [ -n "$termcache_pid" ] && wait $termcache_pid
+    [ -n "$ttystat_pid" ] && wait $ttystat_pid
 
     # クリーンアップ用trapを設定
     trap cleanup_batch_cache EXIT
 
     BATCH_INITIALIZED=1
-
-    # ターミナル検出を事前実行（セッション単位でキャッシュ）
-    if [[ "$(get_os)" == "Darwin" ]]; then
-        _prebuild_terminal_cache
-    fi
 }
 
 # ターミナル検出を事前に実行してキャッシュに格納（内部関数）
@@ -464,6 +509,63 @@ get_tmux_option_cached() {
     else
         echo "$option_value"
     fi
+}
+
+# バッチ版: 複数のtmuxオプションを一括取得（高速化）
+# 引数: "オプション名=デフォルト値" のペアを複数指定
+# 戻り値: "オプション名=値" 形式の行を出力（evalで変数に展開可能）
+# 使用例: eval "$(get_tmux_options_bulk "@claudecode_working_dot=working" "@claudecode_idle_dot=idle")"
+get_tmux_options_bulk() {
+    # キャッシュが利用可能かチェック
+    if [ "$BATCH_INITIALIZED" != "1" ] || [ -z "$BATCH_TMUX_OPTIONS_FILE" ] || [ ! -f "$BATCH_TMUX_OPTIONS_FILE" ]; then
+        # フォールバック: 個別に取得
+        for arg in "$@"; do
+            local opt="${arg%%=*}"
+            local default="${arg#*=}"
+            local val
+            val=$(get_tmux_option "$opt" "$default")
+            # オプション名から@claudecode_を除去して変数名に
+            local varname="${opt#@claudecode_}"
+            echo "${varname}='${val}'"
+        done
+        return
+    fi
+
+    # 1回のawk呼び出しで全オプションを取得
+    awk -v args="$*" '
+    BEGIN {
+        n = split(args, pairs, " ")
+        for (i = 1; i <= n; i++) {
+            split(pairs[i], kv, "=")
+            opt = kv[1]
+            default_val = kv[2]
+            defaults[opt] = default_val
+            # 変数名は@claudecode_を除去
+            varname = opt
+            gsub(/^@claudecode_/, "", varname)
+            varnames[opt] = varname
+        }
+    }
+    {
+        opt = $1
+        if (opt in defaults) {
+            $1 = ""
+            val = substr($0, 2)
+            gsub(/'\''/, "'\''\\'\'''\''", val)  # シングルクォートをエスケープ
+            print varnames[opt] "='\''" val "'\''"
+            found[opt] = 1
+        }
+    }
+    END {
+        for (opt in defaults) {
+            if (!(opt in found)) {
+                val = defaults[opt]
+                gsub(/'\''/, "'\''\\'\'''\''", val)
+                print varnames[opt] "='\''" val "'\''"
+            }
+        }
+    }
+    ' "$BATCH_TMUX_OPTIONS_FILE"
 }
 
 # tmuxオプションを設定
