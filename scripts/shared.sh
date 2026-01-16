@@ -752,6 +752,82 @@ get_status_priority() {
     esac
 }
 
+# ==============================================================================
+# WSL環境用ターミナル検出関数
+# ==============================================================================
+
+# tmuxクライアントの環境変数からターミナルを検出（WSL専用）
+# $1: client_pid（tmuxクライアントのPID）
+# 戻り値: ターミナル名（WindowsTerminal, WezTerm, VSCode, Alacritty, Unknown）
+detect_terminal_from_client_env() {
+    local client_pid="$1"
+    local env_file="/proc/$client_pid/environ"
+
+    if [ ! -r "$env_file" ]; then
+        echo "Unknown"
+        return
+    fi
+
+    local env_content
+    env_content=$(cat "$env_file" 2>/dev/null | tr '\0' '\n')
+
+    # Windows Terminal
+    if echo "$env_content" | grep -q "^WT_SESSION="; then
+        echo "WindowsTerminal"
+        return
+    fi
+
+    # WezTerm
+    if echo "$env_content" | grep -q "^TERM_PROGRAM=WezTerm"; then
+        echo "WezTerm"
+        return
+    fi
+
+    # VS Code
+    if echo "$env_content" | grep -q "^VSCODE_IPC_HOOK_CLI="; then
+        echo "VSCode"
+        return
+    fi
+
+    # Alacritty
+    if echo "$env_content" | grep -q "^ALACRITTY_"; then
+        echo "Alacritty"
+        return
+    fi
+
+    echo "Unknown"
+}
+
+# tmuxセッションに接続しているクライアントからターミナルを検出（WSL専用）
+# $1: session_name（tmuxセッション名）
+# 戻り値: ターミナル名（WindowsTerminal, WezTerm, VSCode, Alacritty）または空文字
+get_terminal_for_session_wsl() {
+    local session_name="$1"
+
+    # WSL環境でない場合は何も返さない
+    if ! grep -qi microsoft /proc/version 2>/dev/null; then
+        return
+    fi
+
+    local client_pid
+    client_pid=$(tmux list-clients -t "$session_name" -F '#{client_pid}' 2>/dev/null | head -1)
+
+    if [ -z "$client_pid" ]; then
+        return
+    fi
+
+    local terminal
+    terminal=$(detect_terminal_from_client_env "$client_pid")
+
+    if [ "$terminal" != "Unknown" ]; then
+        echo "$terminal"
+    fi
+}
+
+# ==============================================================================
+# ターミナル検出ヘルパー関数
+# ==============================================================================
+
 # プロセス名からターミナルアプリ名を判定するヘルパー関数
 # $1: プロセス名（フルパス可）
 # 戻り値: ターミナル名（iTerm2, WezTerm, Ghostty, Terminal）または空文字
@@ -916,12 +992,27 @@ get_terminal_emoji() {
             esac
         fi
 
-        # WSL判定
+        # WSL判定 - tmuxクライアントの環境変数から検出
         if [ -z "$terminal_name" ]; then
             if grep -qi microsoft /proc/version 2>/dev/null; then
-                # WSL環境 - Windows Terminal の可能性が高い
-                if [ -n "$WT_SESSION" ]; then
-                    terminal_name="WindowsTerminal"
+                # WSL環境: pane_idからセッションを特定してターミナルを検出
+                if [ -n "$pane_id" ] && [ "$pane_id" != "unknown" ]; then
+                    local session_name
+                    session_name=$(tmux display-message -p -t "$pane_id" '#{session_name}' 2>/dev/null)
+                    if [ -n "$session_name" ]; then
+                        terminal_name=$(get_terminal_for_session_wsl "$session_name")
+                    fi
+                fi
+
+                # フォールバック: 現在のプロセスの環境変数をチェック
+                if [ -z "$terminal_name" ]; then
+                    if [ -n "$WT_SESSION" ]; then
+                        terminal_name="WindowsTerminal"
+                    elif [ -n "$VSCODE_IPC_HOOK_CLI" ]; then
+                        terminal_name="VSCode"
+                    elif [ -n "$ALACRITTY_LOG" ] || [ -n "$ALACRITTY_SOCKET" ]; then
+                        terminal_name="Alacritty"
+                    fi
                 fi
             fi
         fi
@@ -940,6 +1031,12 @@ get_terminal_emoji() {
             ;;
         WindowsTerminal)
             get_tmux_option "@claudecode_terminal_windows" "🪟"
+            ;;
+        VSCode)
+            get_tmux_option "@claudecode_terminal_vscode" "📝"
+            ;;
+        Alacritty)
+            get_tmux_option "@claudecode_terminal_alacritty" "🔲"
             ;;
         *)
             get_tmux_option "@claudecode_terminal_unknown" "❓"
@@ -1082,6 +1179,12 @@ get_terminal_emoji_cached() {
             ;;
         WindowsTerminal)
             get_tmux_option_cached "@claudecode_terminal_windows" "🪟"
+            ;;
+        VSCode)
+            get_tmux_option_cached "@claudecode_terminal_vscode" "📝"
+            ;;
+        Alacritty)
+            get_tmux_option_cached "@claudecode_terminal_alacritty" "🔲"
             ;;
         *)
             get_tmux_option_cached "@claudecode_terminal_unknown" "❓"
