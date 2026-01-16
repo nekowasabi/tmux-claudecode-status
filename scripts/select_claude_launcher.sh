@@ -42,6 +42,9 @@ while IFS='|' read -r pid pane_id session_name window_index tty_path terminal_na
         iTerm2|Terminal) emoji="🍎" ;;
         WezTerm) emoji="⚡" ;;
         Ghostty) emoji="👻" ;;
+        WindowsTerminal) emoji="🪟" ;;
+        VSCode) emoji="📝" ;;
+        Alacritty) emoji="🔲" ;;
         *) emoji="❓" ;;
     esac
 
