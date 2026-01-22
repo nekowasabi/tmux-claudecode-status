@@ -262,7 +262,11 @@ run_fzf_selection() {
                 pane_data+="${display_lines[$i]}"$'\t'"${pane_ids[$i]}"
             done
             export CLAUDECODE_PANE_DATA="$pane_data"
-            preview_opt="--preview='$preview_script {}' --preview-window=right:50%:wrap"
+            local preview_position
+            preview_position=$(get_tmux_option "@claudecode_fzf_preview_position" "down")
+            local preview_size
+            preview_size=$(get_tmux_option "@claudecode_fzf_preview_size" "50%")
+            preview_opt="--preview='$preview_script {}' --preview-window=${preview_position}:${preview_size}:wrap"
         fi
     fi
 

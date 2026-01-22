@@ -70,13 +70,19 @@ PREVIEW_SCRIPT="$CURRENT_DIR/preview_pane.sh"
 PANE_DATA_FILE="${TEMP_DATA}_pane_data"
 paste "$TEMP_DATA" "${TEMP_DATA}_panes" > "$PANE_DATA_FILE"
 
+# Read preview position and size from tmux options
+PREVIEW_POSITION=$(tmux show-option -gqv "@claudecode_fzf_preview_position" 2>/dev/null)
+PREVIEW_POSITION="${PREVIEW_POSITION:-down}"
+PREVIEW_SIZE=$(tmux show-option -gqv "@claudecode_fzf_preview_size" 2>/dev/null)
+PREVIEW_SIZE="${PREVIEW_SIZE:-50%}"
+
 # Build preview option
 PREVIEW_OPT=""
 if [ "$PREVIEW_ENABLED" = "on" ] && [ -x "$PREVIEW_SCRIPT" ]; then
     # Escape paths for shell embedding
     ESCAPED_SCRIPT=$(printf '%q' "$PREVIEW_SCRIPT")
     ESCAPED_PANE_DATA=$(printf '%q' "$PANE_DATA_FILE")
-    PREVIEW_OPT="--preview='CLAUDECODE_PANE_DATA=\$(cat $ESCAPED_PANE_DATA) $ESCAPED_SCRIPT {}' --preview-window=right:50%:wrap"
+    PREVIEW_OPT="--preview='CLAUDECODE_PANE_DATA=\$(cat $ESCAPED_PANE_DATA) $ESCAPED_SCRIPT {}' --preview-window=${PREVIEW_POSITION}:${PREVIEW_SIZE}:wrap"
 fi
 
 # Step 2: Launch popup with pre-prepared data (instant display!)

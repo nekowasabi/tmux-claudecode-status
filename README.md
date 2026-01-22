@@ -81,6 +81,8 @@ set -g status-format[1] "#{claudecode_status}"
 | `@claudecode_fzf_opts` | `"--height=40% --reverse --border --prompt='Select Claude: '"` | fzf options for process selector |
 | `@claudecode_fzf_preview` | `on` | Enable/disable fzf preview pane (`on`/`off`) |
 | `@claudecode_fzf_preview_lines` | `30` | Number of lines to show in preview |
+| `@claudecode_fzf_preview_position` | `down` | fzf preview window position: `up`, `down`, `left`, `right` |
+| `@claudecode_fzf_preview_size` | `50%` | fzf preview window size (e.g., `50%`, `40%`, `60%`) |
 
 ### Customization Examples
 
@@ -102,6 +104,10 @@ set -g @claudecode_select_key "C-j"  # prefix + Ctrl-j to open selector
 
 # Customize fzf options for process selector
 set -g @claudecode_fzf_opts "--height=50% --reverse --border --prompt='Claude> '"
+
+# Customize fzf preview window (optional)
+set -g @claudecode_fzf_preview_position "right"  # or up, down, left
+set -g @claudecode_fzf_preview_size "60%"
 
 # Customize colors (optional)
 set -g @claudecode_working_color "#f97316"
