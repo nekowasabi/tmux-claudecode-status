@@ -132,6 +132,7 @@ The process selector allows you to quickly switch between multiple Claude Code s
 - **Terminal Awareness**: Displays which terminal application each process is running in (Terminal.app, iTerm2, Ghostty, etc.)
 - **Automatic Focus**: Automatically switches focus to the selected process and its tmux pane
 - **Status Priority**: Sorts processes with working status first, followed by idle processes
+- **Send Prompt (Ctrl+S)**: Send a prompt to the selected Claude Code session via popup
 
 **Setup:**
 ```bash
@@ -142,7 +143,9 @@ set -g @claudecode_select_key "C-j"
 **Usage - Keybinding Mode:**
 1. Press `prefix + Ctrl-j` (or your configured key) to open the selector
 2. Start typing to filter processes by project name or terminal type
-3. Navigate with arrow keys and press Enter to select
+3. Navigate with arrow keys and use one of the following keys:
+   - **Enter**: Switch to the selected Claude Code session
+   - **Ctrl+S**: Open a popup to send a prompt to the selected session
 4. The selected process's terminal will be activated and the corresponding tmux pane will be focused
 
 **Usage - Command Line:**
