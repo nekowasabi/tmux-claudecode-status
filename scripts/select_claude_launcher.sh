@@ -25,6 +25,16 @@ if [ -z "$process_data" ]; then
     exit 0
 fi
 
+# Get working/idle status icons from tmux options
+working_dot=$(get_tmux_option "@claudecode_working_dot" "🤖")
+idle_dot=$(get_tmux_option "@claudecode_idle_dot" "🔔")
+
+# Get working threshold
+working_threshold=$(get_tmux_option "@claudecode_working_threshold" "5")
+
+# Get current time once
+current_time="${EPOCHSECONDS:-$(date +%s)}"
+
 # Prepare display lines and pane IDs
 > "$TEMP_DATA"
 > "${TEMP_DATA}_panes"
@@ -48,8 +58,20 @@ while IFS='|' read -r pid pane_id session_name window_index tty_path terminal_na
         *) emoji="❓" ;;
     esac
 
-    # Include session name for cross-session visibility
-    display_line="  ${emoji} #${window_index} ${project_name} [${session_name}]"
+    # Determine status (working/idle) based on TTY mtime
+    status_icon="$idle_dot"
+    if [ -n "$tty_path" ] && [ -e "$tty_path" ]; then
+        tty_mtime=$(stat -f "%m" "$tty_path" 2>/dev/null || echo "0")
+        if [ -n "$tty_mtime" ] && [ "$tty_mtime" != "0" ]; then
+            time_diff=$((current_time - tty_mtime))
+            if [ "$time_diff" -lt "$working_threshold" ]; then
+                status_icon="$working_dot"
+            fi
+        fi
+    fi
+
+    # Include session name for cross-session visibility and status icon
+    display_line="  ${emoji} #${window_index} ${project_name} [${session_name}] ${status_icon}"
     echo "$display_line" >> "$TEMP_DATA"
     echo "$pane_id" >> "${TEMP_DATA}_panes"
 done <<< "$process_data"
