@@ -108,7 +108,7 @@ init_batch_cache() {
 # PID -> pane_id マッピングを構築（内部関数）
 # claudeプロセスのみを対象に祖先を辿り、pane_pidにマッチするものをマッピング
 _build_pid_pane_map() {
-    # claudeプロセスのみを対象にすることで高速化
+    # claude と codex プロセスを対象
     awk -F'\t' '
     FNR == NR {
         pane_pids[$2] = $1  # pane_pid -> pane_id
@@ -116,19 +116,36 @@ _build_pid_pane_map() {
     }
     {
         gsub(/^[ \t]+/, "")
-        split($0, f, /[ \t]+/)
+        n = split($0, f, /[ \t]+/)
         pid = f[1]; parent = f[2]; comm = f[3]
+
+        # 4番目以降のフィールドを args として結合
+        args = ""
+        for (i = 4; i <= n; i++) {
+            args = args (i > 4 ? " " : "") f[i]
+        }
+
         if (pid != "" && pid != "PID") {
             ppid[pid] = parent
-            if (comm == "claude") claude[pid] = 1
+            # claude プロセスを検出
+            if (comm == "claude") {
+                ai_proc[pid] = "claude"
+            }
+            # Node.js プロセスでコマンドラインに /codex を含む
+            else if (comm == "node" && args ~ /(^|[[:space:]]|\/)codex([[:space:]]|$)/) {
+                ai_proc[pid] = "codex"
+            }
         }
     }
     END {
-        # claudeプロセスのみ祖先を辿る
-        for (pid in claude) {
+        # AI プロセスの祖先を辿る
+        for (pid in ai_proc) {
             current = pid
             for (d = 0; d < 20; d++) {
-                if (current in pane_pids) { print pid "\t" pane_pids[current]; break }
+                if (current in pane_pids) {
+                    print pid "\t" pane_pids[current] "\t" ai_proc[pid]
+                    break
+                }
                 if (current == "" || current == "1" || current == "0") break
                 current = ppid[current]
             }
@@ -167,19 +184,19 @@ get_all_claude_info_batch() {
         -v f4="$BATCH_CLIENTS_CACHE_FILE" \
         -v f5="$BATCH_PROCESS_TREE_FILE" '
     BEGIN { FS="\t" }
-    FILENAME == f1 { pid_pane[$1]=$2; next }
+    FILENAME == f1 { pid_pane[$1]=$2; pid_type[$1]=$3; next }
     FILENAME == f2 { pane_session[$1]=$3; pane_window[$1]=$4; pane_tty[$1]=$6; pane_cwd[$1]=$7; next }
     FILENAME == f3 { session_term[$1]=$2; next }
     FILENAME == f4 { attached_sessions[$1]=1; next }
-    FILENAME == f5 { gsub(/^[ \t]+/,""); split($0,f,/[ \t]+/); if(f[3]=="claude") claude_pids[f[1]]=1 }
+    FILENAME == f5 { gsub(/^[ \t]+/,""); split($0,f,/[ \t]+/); if(f[3]=="claude" || f[3]=="codex") proc_pids[f[1]]=f[3] }
     END {
-        for(pid in claude_pids) {
+        for(pid in proc_pids) {
             p=pid_pane[pid]; if(p=="") continue
             s=pane_session[p]
             # Detached セッションのプロセスを除外
             if (!(s in attached_sessions)) continue
             c=pane_cwd[p]; if(c=="") c="unknown"
-            print pid"|"p"|"s"|"pane_window[p]"|"pane_tty[p]"|"session_term[s]"|"c
+            print pid"|"p"|"s"|"pane_window[p]"|"pane_tty[p]"|"session_term[s]"|"c"|"proc_pids[pid]
         }
     }' "$BATCH_PID_PANE_MAP_FILE" "$BATCH_PANE_INFO_FILE" "$BATCH_TERMINAL_CACHE_FILE" "$BATCH_CLIENTS_CACHE_FILE" "$BATCH_PROCESS_TREE_FILE" 2>/dev/null
 }

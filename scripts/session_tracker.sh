@@ -21,23 +21,59 @@ CACHE_DIR="/tmp/claudecode_status_cache"
 # Claude Codeプロセスの PID 一覧を取得
 # 戻り値: スペース区切りのPID一覧
 get_claude_pids() {
-    local pids
+    # 後方互換性のため get_ai_pids を使用
+    get_ai_pids "claude"
+}
 
-    # 方法1: psコマンドでプロセス名が正確に"claude"のものを取得
-    # macOSのpgrepは正規表現マッチングに問題があるためpsを優先使用
-    pids=$(ps -eo pid,comm 2>/dev/null | awk '$2 == "claude" {print $1}' | tr '\n' ' ')
+# Phase 2: AI プロセス（claude + codex）の PID 一覧を取得
+# $1: フィルタ（オプション: "claude" or "codex"）
+# 戻り値: スペース区切りの PID 一覧
+get_ai_pids() {
+    local filter="${1:-}"
+    local pids=""
 
-    if [ -z "$pids" ]; then
-        # 方法2: pgrep（フォールバック）
-        pids=$(pgrep -d ' ' "claude" 2>/dev/null)
-    fi
-
-    if [ -z "$pids" ]; then
-        # 方法3: node経由のclaude（旧方式フォールバック）
-        pids=$(ps aux 2>/dev/null | grep -E "[n]ode.*claude" | awk '{print $2}' | tr '\n' ' ')
+    if [ "$BATCH_INITIALIZED" = "1" ] && [ -f "$BATCH_PROCESS_TREE_FILE" ]; then
+        # バッチキャッシュから取得
+        if [ -n "$filter" ]; then
+            pids=$(awk -v f="$filter" '$3 == f {print $1}' "$BATCH_PROCESS_TREE_FILE" | tr '\n' ' ')
+        else
+            pids=$(awk '$3 == "claude" || $3 == "codex" {print $1}' "$BATCH_PROCESS_TREE_FILE" | tr '\n' ' ')
+        fi
+    else
+        # 通常モード: ps コマンドで取得
+        if [ -n "$filter" ]; then
+            pids=$(ps -eo pid,comm 2>/dev/null | awk -v f="$filter" '$2 == f {print $1}' | tr '\n' ' ')
+        else
+            pids=$(ps -eo pid,comm 2>/dev/null | awk '$2 == "claude" || $2 == "codex" {print $1}' | tr '\n' ' ')
+        fi
     fi
 
     echo "$pids"
+}
+
+# PIDからプロセスタイプを取得
+# $1: PID
+# 戻り値: "claude" または "codex"
+get_process_type() {
+    local pid="$1"
+    local comm args
+    read -r comm args < <(ps -p "$pid" -o comm=,args= 2>/dev/null)
+
+    if [ "$comm" = "claude" ]; then
+        echo "claude"
+    elif [ "$comm" = "node" ] && [[ "$args" =~ (^|[[:space:]]|/)codex([[:space:]]|$) ]]; then
+        echo "codex"
+    fi
+}
+
+# キャッシュ版
+get_process_type_cached() {
+    local pid="$1"
+    if [ "$BATCH_INITIALIZED" = "1" ] && [ -f "$BATCH_PROCESS_TREE_FILE" ]; then
+        awk -v pid="$pid" '$1 == pid { print $3 }' "$BATCH_PROCESS_TREE_FILE"
+    else
+        get_process_type "$pid"
+    fi
 }
 
 # PIDからtmuxペイン情報を取得
@@ -445,12 +481,18 @@ get_project_session_dir() {
 # 戻り値: ~/.claude/projects/ 内のディレクトリパス（見つからない場合は空）
 get_project_session_dir_cached() {
     local pid="$1"
+    local proc_type="${2:-}"
     local cwd=""
 
     # キャッシュが初期化されていない場合は元の関数を使用
     if [ "$BATCH_INITIALIZED" != "1" ]; then
         get_project_session_dir "$pid"
         return
+    fi
+
+    # プロセスタイプが指定されていない場合は検出
+    if [ -z "$proc_type" ]; then
+        proc_type=$(get_process_type_cached "$pid")
     fi
 
     # OS判定でcwd取得方法を分岐
@@ -470,15 +512,27 @@ get_project_session_dir_cached() {
     fi
 
     if [ -n "$cwd" ]; then
-        # cwdをClaude Codeのプロジェクトディレクトリ名形式に変換
-        # 例: /home/takets/repos/foo -> -home-takets-repos-foo
-        local encoded_dir
-        encoded_dir=$(echo "$cwd" | sed 's|^/||; s|/|-|g; s|^|-|')
-        local project_dir="$HOME/.claude/projects/$encoded_dir"
-        if [ -d "$project_dir" ]; then
-            echo "$project_dir"
-            return
-        fi
+        case "$proc_type" in
+            claude)
+                # Claude Code: プロジェクトディレクトリ形式
+                # 例: /home/takets/repos/foo -> -home-takets-repos-foo
+                local encoded_dir
+                encoded_dir=$(echo "$cwd" | sed 's|^/||; s|/|-|g; s|^|-|')
+                local project_dir="$HOME/.claude/projects/$encoded_dir"
+                if [ -d "$project_dir" ]; then
+                    echo "$project_dir"
+                    return
+                fi
+                ;;
+            codex)
+                # Codex: セッションディレクトリ（~/.codex/sessions/）
+                local sessions_dir="$HOME/.codex/sessions"
+                if [ -d "$sessions_dir" ]; then
+                    echo "$sessions_dir"
+                    return
+                fi
+                ;;
+        esac
     fi
 
     echo ""
@@ -519,14 +573,31 @@ check_process_status() {
     fi
 
     # 方法3: プロジェクトのセッションファイル（.jsonl）の更新時刻で判定
+    # プロセスタイプを検出
+    local proc_type
+    proc_type=$(get_process_type_cached "$pid")
+
     # バッチ版を使用してlsofキャッシュを共有
     local project_dir
-    project_dir=$(get_project_session_dir_cached "$pid")
+    project_dir=$(get_project_session_dir_cached "$pid" "$proc_type")
 
     if [ -n "$project_dir" ] && [ -d "$project_dir" ]; then
-        # 最新の.jsonlファイルを取得
-        local latest_file
-        latest_file=$(ls -t "$project_dir"/*.jsonl 2>/dev/null | head -1)
+        local latest_file=""
+
+        case "$proc_type" in
+            claude)
+                # Claude Code: プロジェクトディレクトリ直下の.jsonl
+                latest_file=$(ls -t "$project_dir"/*.jsonl 2>/dev/null | head -1)
+                ;;
+            codex)
+                # Codex: 日付ベースディレクトリから最新の.jsonlを検索
+                latest_file=$(find "$project_dir" -type f -name "*.jsonl" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+                ;;
+            *)
+                # Unknown process type: use claude behavior as fallback
+                latest_file=$(ls -t "$project_dir"/*.jsonl 2>/dev/null | head -1)
+                ;;
+        esac
 
         if [ -n "$latest_file" ] && [ -f "$latest_file" ]; then
             local mtime
@@ -542,20 +613,22 @@ check_process_status() {
         fi
     fi
 
-    # 方法4: debug ファイルで判定（旧方式、フォールバック）
-    local debug_dir="$HOME/.claude/debug"
-    if [ -d "/proc/$pid/fd" ]; then
-        local debug_file
-        debug_file=$(ls -l "/proc/$pid/fd" 2>/dev/null | grep "$debug_dir" | head -1 | awk '{print $NF}')
+    # 方法4: debug ファイルで判定（旧方式、フォールバック、claude のみ）
+    if [ "$proc_type" = "claude" ]; then
+        local debug_dir="$HOME/.claude/debug"
+        if [ -d "/proc/$pid/fd" ]; then
+            local debug_file
+            debug_file=$(ls -l "/proc/$pid/fd" 2>/dev/null | grep "$debug_dir" | head -1 | awk '{print $NF}')
 
-        if [ -n "$debug_file" ] && [ -f "$debug_file" ]; then
-            local mtime
-            mtime=$(get_file_mtime "$debug_file")
-            if [ -n "$mtime" ]; then
-                local diff=$((current_time - mtime))
-                if [ "$diff" -lt "$WORKING_THRESHOLD" ]; then
-                    echo "working"
-                    return
+            if [ -n "$debug_file" ] && [ -f "$debug_file" ]; then
+                local mtime
+                mtime=$(get_file_mtime "$debug_file")
+                if [ -n "$mtime" ]; then
+                    local diff=$((current_time - mtime))
+                    if [ "$diff" -lt "$WORKING_THRESHOLD" ]; then
+                        echo "working"
+                        return
+                    fi
                 fi
             fi
         fi
@@ -595,8 +668,9 @@ get_session_states() {
 # 同じプロジェクト名でも異なるセッションの場合は番号付きで表示
 # 注意: Detached セッション（クライアント未接続）のプロセスは除外される
 get_session_details() {
+    # Phase 4: AI プロセス（claude + codex）を取得
     local pids
-    pids=$(get_claude_pids)
+    pids=$(get_ai_pids)
 
     if [ -z "$pids" ]; then
         echo ""
@@ -607,12 +681,23 @@ get_session_details() {
     local attached_sessions
     attached_sessions=$(tmux list-clients -F '#{client_session}' 2>/dev/null | sort -u)
 
+    # show_codex オプション
+    local show_codex="${SHOW_CODEX:-on}"
+
     local details=""
     local seen_pane_ids=""
     local seen_project_names=""  # "name:count|name:count|..." 形式
 
     for pid in $pids; do
-        local pane_info pane_id pane_index project_name status terminal_emoji
+        local pane_info pane_id pane_index project_name status terminal_emoji proc_type
+
+        # プロセスタイプを取得
+        proc_type=$(get_process_type_cached "$pid")
+
+        # show_codex が off で codex プロセスの場合はスキップ
+        if [ "$proc_type" = "codex" ] && [ "$show_codex" != "on" ]; then
+            continue
+        fi
 
         # ペイン情報を取得（重複チェック用）
         pane_info=$(get_pane_info_for_pid "$pid")
@@ -669,11 +754,11 @@ get_session_details() {
         # 状態を取得（ペインIDを渡す）
         status=$(check_process_status "$pid" "$pane_id")
 
-        # 詳細を追加（新形式: terminal_emoji:pane_index:project_name:status）
+        # 詳細を追加（新形式: process_type:terminal_emoji:pane_index:project_name:status）
         if [ -n "$details" ]; then
             details+="|"
         fi
-        details+="${terminal_emoji}:${pane_index}:${project_name}:${status}"
+        details+="${proc_type}:${terminal_emoji}:${pane_index}:${project_name}:${status}"
     done
 
     echo "$details"
