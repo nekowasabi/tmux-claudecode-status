@@ -127,8 +127,8 @@ _build_pid_pane_map() {
 
         if (pid != "" && pid != "PID") {
             ppid[pid] = parent
-            # claude プロセスを検出
-            if (comm == "claude") {
+            # Claude Code プロセスを検出（claude と claude-raw の両方）
+            if (comm == "claude" || comm == "claude-raw") {
                 ai_proc[pid] = "claude"
             }
             # Codex プロセスを検出（commに依存せず、args から /bin/codex を検索）

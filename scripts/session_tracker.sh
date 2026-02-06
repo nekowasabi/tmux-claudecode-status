@@ -59,7 +59,8 @@ get_process_type() {
     local comm args
     read -r comm args < <(ps -p "$pid" -o comm=,args= 2>/dev/null)
 
-    if [ "$comm" = "claude" ]; then
+    # Claude Code プロセス（claude と claude-raw の両方）
+    if [ "$comm" = "claude" ] || [ "$comm" = "claude-raw" ]; then
         echo "claude"
     # Codex 検出: commに依存せず args から /bin/codex を検索
     # Note: ps -o comm= は 'MainThread' を返すため
