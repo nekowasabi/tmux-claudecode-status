@@ -57,8 +57,8 @@ init_batch_cache() {
     # 全外部コマンドを並列実行（Phase統合で待機時間削減）
     # ========================================
 
-    # プロセスツリー取得
-    ps -eo pid,ppid,comm 2>/dev/null > "$BATCH_PROCESS_TREE_FILE" &
+    # プロセスツリー取得（args フィールドを追加してCodex検出に対応）
+    ps -eo pid,ppid,comm,args 2>/dev/null > "$BATCH_PROCESS_TREE_FILE" &
     local ps_pid=$!
 
     # tmuxペイン情報（pane_current_pathも取得）
@@ -189,15 +189,16 @@ get_all_claude_info_batch() {
     FILENAME == f2 { pane_session[$1]=$3; pane_window[$1]=$4; pane_tty[$1]=$6; pane_cwd[$1]=$7; next }
     FILENAME == f3 { session_term[$1]=$2; next }
     FILENAME == f4 { attached_sessions[$1]=1; next }
-    FILENAME == f5 { gsub(/^[ \t]+/,""); split($0,f,/[ \t]+/); if(f[3]=="claude" || f[3]=="codex") proc_pids[f[1]]=f[3] }
+    # f5 (BATCH_PROCESS_TREE_FILE) は使用しない（pid_type で既に判定済み）
     END {
-        for(pid in proc_pids) {
+        # pid_type を使用（BATCH_PID_PANE_MAP_FILE から取得済み）
+        for(pid in pid_type) {
             p=pid_pane[pid]; if(p=="") continue
             s=pane_session[p]
-            # Detached セッションのプロセスを除外
-            if (!(s in attached_sessions)) continue
+            # Detached セッションも含める（すべてのセッションを表示）
+            # if (!(s in attached_sessions)) continue
             c=pane_cwd[p]; if(c=="") c="unknown"
-            print pid"|"p"|"s"|"pane_window[p]"|"pane_tty[p]"|"session_term[s]"|"c"|"proc_pids[pid]
+            print pid"|"p"|"s"|"pane_window[p]"|"pane_tty[p]"|"session_term[s]"|"c"|"pid_type[pid]
         }
     }' "$BATCH_PID_PANE_MAP_FILE" "$BATCH_PANE_INFO_FILE" "$BATCH_TERMINAL_CACHE_FILE" "$BATCH_CLIENTS_CACHE_FILE" "$BATCH_PROCESS_TREE_FILE" 2>/dev/null
 }

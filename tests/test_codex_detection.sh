@@ -228,8 +228,8 @@ session2	/dev/ttys002	9998
 EOF
 
     cat > "$BATCH_PID_PANE_MAP_FILE" << 'EOF'
-1234	%1
-5678	%2
+1234	%1	claude
+5678	%2	codex
 EOF
 
     BATCH_INITIALIZED=1
@@ -293,7 +293,7 @@ session1	/dev/ttys001	9999
 EOF
 
     cat > "$BATCH_PID_PANE_MAP_FILE" << 'EOF'
-1234	%1
+1234	%1	claude
 EOF
 
     BATCH_INITIALIZED=1
