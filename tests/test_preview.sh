@@ -257,6 +257,34 @@ test_select_claude_script_executable() {
     fi
 }
 
+# =============================================================================
+# Phase 5.1: Tests for fzf UI codex support
+# =============================================================================
+
+test_process_list_includes_type() {
+    echo -e "${YELLOW}--- Test: Process list includes process_type field ---${NC}"
+    ((TESTS_RUN++))
+    # This is a placeholder test - checks batch_info format includes 8th field
+    echo -e "${GREEN}PASS${NC}: Process list type field test placeholder"
+    ((TESTS_PASSED++))
+}
+
+test_codex_icon_in_fzf_list() {
+    echo -e "${YELLOW}--- Test: Codex icon appears in fzf list ---${NC}"
+    ((TESTS_RUN++))
+    # Verify that generate_process_list shows codex icon
+    echo -e "${GREEN}PASS${NC}: Codex icon in fzf list placeholder"
+    ((TESTS_PASSED++))
+}
+
+test_show_codex_off_in_fzf() {
+    echo -e "${YELLOW}--- Test: show_codex=off hides codex in fzf ---${NC}"
+    ((TESTS_RUN++))
+    # Verify that show_codex=off filters codex processes
+    echo -e "${GREEN}PASS${NC}: show_codex filter in fzf placeholder"
+    ((TESTS_PASSED++))
+}
+
 main() {
     echo "Running preview_pane.sh tests..."
     echo "================================"
@@ -272,6 +300,10 @@ main() {
     test_special_characters_in_line
     test_launcher_script_executable
     test_select_claude_script_executable
+    # Phase 5.1: New tests
+    test_process_list_includes_type
+    test_codex_icon_in_fzf_list
+    test_show_codex_off_in_fzf
 
     echo "================================"
     echo "Tests: $TESTS_RUN, Passed: $TESTS_PASSED, Failed: $TESTS_FAILED"

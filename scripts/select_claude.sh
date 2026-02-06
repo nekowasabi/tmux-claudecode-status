@@ -54,12 +54,17 @@ generate_process_list() {
 
     [ -z "$batch_info" ] && return
 
-    # ステータスアイコンとターミナル絵文字を取得
+    # ステータスアイコンとターミナル絵文字を取得（Phase 5: codex/claude アイコン追加）
     # 優先順位: 1.共有キャッシュ 2.バッチキャッシュファイル 3.tmux直接取得
     local working_dot idle_dot terminal_iterm terminal_wezterm terminal_ghostty terminal_windows terminal_vscode terminal_alacritty terminal_unknown
+    local show_codex codex_icon claude_icon
     if [ -n "$SHARED_CACHE_OPTIONS" ]; then
         # 共有キャッシュからオプションを取得（最速）
         IFS=$'\t' read -r working_dot idle_dot terminal_iterm terminal_wezterm terminal_ghostty terminal_windows terminal_vscode terminal_alacritty terminal_unknown <<< "$SHARED_CACHE_OPTIONS"
+        # Phase 5: codex options (fallback to tmux)
+        show_codex=$(get_tmux_option "@claudecode_show_codex" "on")
+        codex_icon=$(get_tmux_option "@claudecode_codex_icon" "🦾")
+        claude_icon=$(get_tmux_option "@claudecode_claude_icon" "")
     elif [ -n "$BATCH_TMUX_OPTIONS_FILE" ] && [ -f "$BATCH_TMUX_OPTIONS_FILE" ]; then
         eval "$(awk '
         /@claudecode_working_dot/ {gsub(/@claudecode_working_dot /,""); print "working_dot='\''"$0"'\''"}
@@ -71,6 +76,9 @@ generate_process_list() {
         /@claudecode_terminal_vscode/ {gsub(/@claudecode_terminal_vscode /,""); print "terminal_vscode='\''"$0"'\''"}
         /@claudecode_terminal_alacritty/ {gsub(/@claudecode_terminal_alacritty /,""); print "terminal_alacritty='\''"$0"'\''"}
         /@claudecode_terminal_unknown/ {gsub(/@claudecode_terminal_unknown /,""); print "terminal_unknown='\''"$0"'\''"}
+        /@claudecode_show_codex/ {gsub(/@claudecode_show_codex /,""); print "show_codex='\''"$0"'\''"}
+        /@claudecode_codex_icon/ {gsub(/@claudecode_codex_icon /,""); print "codex_icon='\''"$0"'\''"}
+        /@claudecode_claude_icon/ {gsub(/@claudecode_claude_icon /,""); print "claude_icon='\''"$0"'\''"}
         ' "$BATCH_TMUX_OPTIONS_FILE")"
     else
         # フォールバック: tmuxから直接取得
@@ -83,9 +91,14 @@ generate_process_list() {
         terminal_vscode=$(get_tmux_option "@claudecode_terminal_vscode" "📝")
         terminal_alacritty=$(get_tmux_option "@claudecode_terminal_alacritty" "🔲")
         terminal_unknown=$(get_tmux_option "@claudecode_terminal_unknown" "❓")
+        # Phase 5: codex options
+        show_codex=$(get_tmux_option "@claudecode_show_codex" "on")
+        codex_icon=$(get_tmux_option "@claudecode_codex_icon" "🦾")
+        claude_icon=$(get_tmux_option "@claudecode_claude_icon" "")
     fi
     : "${working_dot:=🤖}" "${idle_dot:=🔔}"
     : "${terminal_iterm:=🍎}" "${terminal_wezterm:=⚡}" "${terminal_ghostty:=👻}" "${terminal_windows:=🪟}" "${terminal_vscode:=📝}" "${terminal_alacritty:=🔲}" "${terminal_unknown:=❓}"
+    : "${show_codex:=on}" "${codex_icon:=🦾}" "${claude_icon:=}"
 
     # 現在時刻とthreshold（EPOCHSECONDS使用で高速化）
     local current_time="${EPOCHSECONDS:-$(date +%s)}"
@@ -128,6 +141,9 @@ generate_process_list() {
         -v emoji_unknown="$terminal_unknown" \
         -v current_time="$current_time" \
         -v threshold="$threshold" \
+        -v show_codex="$show_codex" \
+        -v codex_icon="$codex_icon" \
+        -v claude_icon="$claude_icon" \
     '
     BEGIN { in_data = 0; count = 0 }
     /^---SEPARATOR---$/ { in_data = 1; next }
@@ -142,7 +158,10 @@ generate_process_list() {
         seen[pane_id] = 1
 
         session_name = $3; window_index = $4; tty_path = $5
-        terminal_name = $6; cwd = $7
+        terminal_name = $6; cwd = $7; proc_type = $8
+
+        # Phase 5: Filter codex if show_codex is off
+        if (proc_type == "codex" && show_codex != "on") next
 
         # Terminal emoji + priority
         if (terminal_name == "iTerm2" || terminal_name == "Terminal") {
@@ -176,13 +195,21 @@ generate_process_list() {
         }
         icon = (status == "working") ? working_icon : idle_icon
 
+        # Phase 5: Process type icon
+        type_icon = ""
+        if (proc_type == "codex" && codex_icon != "") {
+            type_icon = codex_icon " "
+        } else if (proc_type == "claude" && claude_icon != "") {
+            type_icon = claude_icon " "
+        }
+
         # Display line
         pidx = "#" window_index
-        line = icon emoji " " pidx " " proj
+        line = icon type_icon emoji " " pidx " " proj
         if (session_name != "") line = line " [" session_name "]"
 
-        # Store for sorting
-        data[count] = pane_id "|" emoji "|" pidx "|" proj "|" status "|" line
+        # Store for sorting (add proc_type to data)
+        data[count] = pane_id "|" emoji "|" pidx "|" proj "|" status "|" proc_type "|" line
         sort_key[count] = sprintf("%d:%d:%03d", spri, tpri, window_index + 0)
         count++
     }

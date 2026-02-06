@@ -279,11 +279,11 @@ get_terminal_emoji() {
 
                 # フォールバック: 現在のプロセスの環境変数をチェック
                 if [ -z "$terminal_name" ]; then
-                    if [ -n "$WT_SESSION" ]; then
+                    if [ -n "${WT_SESSION:-}" ]; then
                         terminal_name="WindowsTerminal"
-                    elif [ -n "$VSCODE_IPC_HOOK_CLI" ]; then
+                    elif [ -n "${VSCODE_IPC_HOOK_CLI:-}" ]; then
                         terminal_name="VSCode"
-                    elif [ -n "$ALACRITTY_LOG" ] || [ -n "$ALACRITTY_SOCKET" ]; then
+                    elif [ -n "${ALACRITTY_LOG:-}" ] || [ -n "${ALACRITTY_SOCKET:-}" ]; then
                         terminal_name="Alacritty"
                     fi
                 fi
