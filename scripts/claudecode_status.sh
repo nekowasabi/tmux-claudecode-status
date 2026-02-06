@@ -80,8 +80,16 @@ main() {
     show_pane=$(get_tmux_option "@claudecode_show_pane" "on")
     working_threshold=$(get_tmux_option "@claudecode_working_threshold" "$DEFAULT_WORKING_THRESHOLD")
 
+    # Phase 4: Codex display options
+    show_codex=$(get_tmux_option "@claudecode_show_codex" "on")
+    codex_icon=$(get_tmux_option "@claudecode_codex_icon" "🦾")
+    claude_icon=$(get_tmux_option "@claudecode_claude_icon" "")
+
     # Export working threshold for session_tracker.sh
     export CLAUDECODE_WORKING_THRESHOLD="$working_threshold"
+
+    # Phase 4: Export show_codex for session_tracker.sh
+    export SHOW_CODEX="$show_codex"
 
     # Generate output: "🍎#0 project-name... ●" 形式
     local output=""
@@ -119,7 +127,7 @@ main() {
         sort_input+="$(printf '%d:%d:%03d:%s' "$status_priority" "$terminal_priority" "$pane_num" "$entry")"$'\n'
     done
 
-    # Sort and extract original entries
+    # Sort and extract original entries (Phase 4: 5 fields)
     local sorted_entries=()
     while IFS= read -r line; do
         [ -n "$line" ] && sorted_entries+=("$line")
@@ -127,11 +135,13 @@ main() {
 
     # Use sorted entries
     for entry in "${sorted_entries[@]}"; do
-        local terminal_emoji pane_index project_name status dot color prefix
+        local proc_type terminal_emoji pane_index project_name status dot color prefix type_indicator
 
-        # Parse entry (terminal_emoji:pane_index:project_name:status)
-        # 4つのフィールドに分割
+        # Parse entry (Phase 4: process_type:terminal_emoji:pane_index:project_name:status)
+        # 5つのフィールドに分割
         local temp="${entry}"
+        proc_type="${temp%%:*}"
+        temp="${temp#*:}"
         terminal_emoji="${temp%%:*}"
         temp="${temp#*:}"
         pane_index="${temp%%:*}"
@@ -148,8 +158,19 @@ main() {
             color="$idle_color"
         fi
 
-        # プレフィックスを構築（ターミナル絵文字 + ペイン番号）
+        # Phase 4: プロセスタイプに応じたアイコンを追加
+        type_indicator=""
+        if [ "$proc_type" = "codex" ] && [ -n "$codex_icon" ]; then
+            type_indicator="$codex_icon"
+        elif [ "$proc_type" = "claude" ] && [ -n "$claude_icon" ]; then
+            type_indicator="$claude_icon"
+        fi
+
+        # プレフィックスを構築（プロセスタイプアイコン + ターミナル絵文字 + ペイン番号）
         prefix=""
+        if [ -n "$type_indicator" ]; then
+            prefix+="$type_indicator"
+        fi
         if [ "$show_terminal" = "on" ] && [ -n "$terminal_emoji" ]; then
             prefix+="$terminal_emoji"
         fi

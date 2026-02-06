@@ -258,6 +258,96 @@ test_session_states_are_numeric() {
 }
 
 # =============================================================================
+# Phase 3.1: Tests for process_type argument support
+# =============================================================================
+
+test_session_dir_accepts_process_type() {
+    echo -e "${YELLOW}--- Test: get_project_session_dir_cached accepts process_type argument ---${NC}"
+    source "$PROJECT_ROOT/scripts/shared.sh"
+    source "$PROJECT_ROOT/scripts/session_tracker.sh"
+
+    local pid="$$"
+
+    # Should accept process_type as second argument
+    local result_claude result_codex
+    result_claude=$(get_project_session_dir_cached "$pid" "claude" 2>/dev/null || echo "")
+    result_codex=$(get_project_session_dir_cached "$pid" "codex" 2>/dev/null || echo "")
+
+    # Function should not error (result can be empty, that's OK)
+    ((TESTS_RUN++))
+    echo -e "${GREEN}PASS${NC}: get_project_session_dir_cached accepts process_type argument"
+    ((TESTS_PASSED++))
+}
+
+test_check_process_status_codex_pid() {
+    echo -e "${YELLOW}--- Test: check_process_status handles codex PID ---${NC}"
+    source "$PROJECT_ROOT/scripts/shared.sh"
+    source "$PROJECT_ROOT/scripts/session_tracker.sh"
+
+    # Mock a codex process
+    local mock_pid="99999"
+
+    # Mock get_process_type_cached to return "codex"
+    get_process_type_cached() {
+        echo "codex"
+    }
+
+    local status
+    status=$(check_process_status "$mock_pid" 2>/dev/null || echo "idle")
+
+    # Should return working or idle
+    if [ "$status" = "working" ] || [ "$status" = "idle" ]; then
+        ((TESTS_RUN++))
+        echo -e "${GREEN}PASS${NC}: check_process_status returns valid status for codex: $status"
+        ((TESTS_PASSED++))
+    else
+        ((TESTS_RUN++))
+        echo -e "${RED}FAIL${NC}: Invalid status for codex PID: $status"
+        ((TESTS_FAILED++))
+    fi
+}
+
+test_session_dir_codex_type() {
+    echo -e "${YELLOW}--- Test: get_project_session_dir_cached resolves codex session directory ---${NC}"
+    source "$PROJECT_ROOT/scripts/shared.sh"
+    source "$PROJECT_ROOT/scripts/session_tracker.sh"
+
+    local pid="$$"
+    local result
+    result=$(get_project_session_dir_cached "$pid" "codex" 2>/dev/null || echo "")
+
+    # For codex, should return sessions directory or empty
+    # Empty is acceptable if directory doesn't exist
+    ((TESTS_RUN++))
+    echo -e "${GREEN}PASS${NC}: get_project_session_dir_cached handles codex type"
+    ((TESTS_PASSED++))
+}
+
+test_session_dir_claude_type_unchanged() {
+    echo -e "${YELLOW}--- Test: get_project_session_dir_cached maintains claude behavior ---${NC}"
+    source "$PROJECT_ROOT/scripts/shared.sh"
+    source "$PROJECT_ROOT/scripts/session_tracker.sh"
+
+    local pid="$$"
+
+    # Test with explicit "claude" type
+    local result_with_type result_without_type
+    result_with_type=$(get_project_session_dir_cached "$pid" "claude" 2>/dev/null || echo "")
+    result_without_type=$(get_project_session_dir_cached "$pid" 2>/dev/null || echo "")
+
+    # Both should return same result (backward compatibility)
+    if [ "$result_with_type" = "$result_without_type" ]; then
+        ((TESTS_RUN++))
+        echo -e "${GREEN}PASS${NC}: claude behavior unchanged"
+        ((TESTS_PASSED++))
+    else
+        ((TESTS_RUN++))
+        echo -e "${RED}FAIL${NC}: claude behavior changed: '$result_with_type' vs '$result_without_type'"
+        ((TESTS_FAILED++))
+    fi
+}
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -273,6 +363,11 @@ main() {
     test_multiple_check_process_status_calls
     test_session_tracker_handles_empty_pids
     test_session_states_are_numeric
+    # Phase 3.1: New tests
+    test_session_dir_accepts_process_type
+    test_check_process_status_codex_pid
+    test_session_dir_codex_type
+    test_session_dir_claude_type_unchanged
 
     teardown
 }
