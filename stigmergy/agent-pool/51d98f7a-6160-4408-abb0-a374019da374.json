@@ -1,0 +1,22 @@
+{
+  "mission_id": "51d98f7a-6160-4408-abb0-a374019da374",
+  "predicted_agents": [
+    {
+      "agent": "doctrine-commander-dev",
+      "reason": "TDD implementation: test modification and code fixes",
+      "priority": 1
+    },
+    {
+      "agent": "doctrine-nco-tester",
+      "reason": "Test execution and verification",
+      "priority": 2
+    },
+    {
+      "agent": "doctrine-staff-impact-verifier",
+      "reason": "Impact verification after code changes",
+      "priority": 3
+    }
+  ],
+  "warm_up_completed": true,
+  "timestamp": "2026-02-06T00:00:02Z"
+}

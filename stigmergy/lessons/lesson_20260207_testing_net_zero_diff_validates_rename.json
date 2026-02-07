@@ -1,0 +1,16 @@
+{
+  "id": "lesson_20260207_testing_net_zero_diff_validates_rename",
+  "timestamp": "2026-02-07T00:00:00Z",
+  "category": "testing",
+  "title": "Net-zero diff (equal insertions/deletions) validates pure rename completeness",
+  "context": "After completing claudecode-to-ai_agent rename across 15 files, git diff showed exactly 254 insertions and 254 deletions",
+  "problem": "Hard to verify that a large rename did not accidentally add, remove, or alter logic beyond the intended identifier change",
+  "solution": "Check that git diff --stat shows equal insertions and deletions. A pure rename should be symmetric. Any asymmetry indicates either: (1) incomplete replacement leaving old identifiers, (2) over-broad replacement modifying unintended content, or (3) accidental logic changes mixed into the rename commit.",
+  "verification_command": "git diff --stat HEAD~1 | tail -1",
+  "expected_pattern": "N files changed, M insertions(+), M deletions(-) where both M values are equal",
+  "applicable_to": ["code_review", "rename_verification", "refactoring"],
+  "when_to_apply": "After any commit that should be a pure rename or identifier replacement with no logic changes",
+  "confidence": 0.90,
+  "impact": "medium",
+  "tags": ["git", "rename", "verification", "diff_analysis", "code_review"]
+}

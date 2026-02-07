@@ -1,0 +1,70 @@
+{
+  "mission_id": "51d98f7a-6160-4408-abb0-a374019da374",
+  "objective": "Fix Codex process detection bug using TDD Red-Green-Refactor cycle",
+  "status": "completed",
+  "complexity": 55,
+  "execution_summary": {
+    "approach": "TDD Red-Green-Refactor",
+    "phases_completed": [
+      "Red Phase: Modified test mock data to 4-field format",
+      "Green Phase: Fixed _build_pid_pane_map() to detect node/codex",
+      "Green Phase: Fixed get_process_type() to inspect args",
+      "Verify Phase: All tests pass (89/89)",
+      "Edge Case: Validated regex pattern prevents false positives"
+    ]
+  },
+  "changes": {
+    "files_modified": [
+      {
+        "file": "tests/test_codex_detection.sh",
+        "change": "Updated mock data from 3-field to 4-field format (PID PPID COMM ARGS)",
+        "impact": "Test now accurately simulates real Codex process"
+      },
+      {
+        "file": "scripts/lib/cache_batch.sh",
+        "function": "_build_pid_pane_map()",
+        "change": "Parse command-line args, detect node processes with /codex pattern",
+        "impact": "Codex processes now detected correctly"
+      },
+      {
+        "file": "scripts/session_tracker.sh",
+        "function": "get_process_type()",
+        "change": "Read both comm and args fields from ps",
+        "impact": "Process type detection works for both Claude and Codex"
+      }
+    ]
+  },
+  "test_results": {
+    "before": {
+      "total": 14,
+      "passed": 12,
+      "failed": 2,
+      "reason": "Codex processes not detected"
+    },
+    "after": {
+      "total": 89,
+      "passed": 89,
+      "failed": 0,
+      "suites": [
+        "test_codex_detection.sh: 14/14",
+        "test_detection.sh: 14/14",
+        "test_golden_master.sh: 20/20",
+        "test_output.sh: 14/14",
+        "test_preview.sh: 14/14",
+        "test_status.sh: 13/13"
+      ]
+    }
+  },
+  "success_criteria_met": {
+    "tests_pass": true,
+    "mock_format_correct": true,
+    "detection_uses_args": true,
+    "backward_compatible": true,
+    "no_false_positives": true
+  },
+  "technical_insights": [
+    "AWK split() returns field count - use it instead of NF for split arrays",
+    "Regex pattern /(^|[[:space:]]|\\/)codex([[:space:]]|$)/ prevents false positives",
+    "Real Codex process: node /path/to/bin/codex --full-auto"
+  ]
+}

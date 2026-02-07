@@ -1,0 +1,17 @@
+{
+  "id": "lesson_20260206_awk_split_field_count",
+  "timestamp": "2026-02-06T00:00:00Z",
+  "category": "awk_programming",
+  "title": "AWK split() returns field count - must capture return value",
+  "context": "When parsing variable-length fields with AWK split(), NF refers to original line fields, not the split array size",
+  "problem": "Used NF to iterate over split array f[], but NF was counting tab-separated fields in original line, not space-separated fields in split result",
+  "solution": "Capture split() return value: n = split($0, f, /[ \\t]+/); then use n instead of NF",
+  "code_example": {
+    "before": "split($0, f, /[ \\t]+/); for (i = 1; i <= NF; i++) { ... }",
+    "after": "n = split($0, f, /[ \\t]+/); for (i = 1; i <= n; i++) { ... }"
+  },
+  "applicable_to": ["shell_scripting", "text_processing", "process_detection"],
+  "confidence": 0.95,
+  "impact": "high",
+  "tags": ["awk", "split", "field_parsing", "bug_fix"]
+}

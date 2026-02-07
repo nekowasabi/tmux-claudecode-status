@@ -1,0 +1,23 @@
+{
+  "id": "lesson_20260207_process_phased_rename_with_test_gates",
+  "timestamp": "2026-02-07T00:00:00Z",
+  "category": "process",
+  "title": "Phased rename with intermediate test gates prevents cascading errors",
+  "context": "Renamed all claudecode identifiers to ai_agent across 15 files (254 changes). Used 5-phase approach with test runs between phases.",
+  "problem": "Large-scale renames touching env vars, cache paths, tmux options, variable names, format strings, docs, tests, and file names risk cascading failures if done in a single pass",
+  "solution": "Structure rename in phases: (1) internal logic replacements, (2) intermediate test run, (3) docs, (4) tests, (5) file renames, (6) final verification. Each phase gate catches errors before they compound.",
+  "evidence": {
+    "mission": "rename-task-execution-20260207",
+    "files_changed": 15,
+    "insertions": 254,
+    "deletions": 254,
+    "test_result": "61/62 passed",
+    "phases": 5,
+    "parallel_workers": 5
+  },
+  "applicable_to": ["large_refactors", "identifier_renames", "codebase_migration"],
+  "when_to_apply": "When renaming identifiers that appear in more than 5 files or across multiple syntactic contexts (shell, AWK, tmux config, docs)",
+  "confidence": 0.95,
+  "impact": "high",
+  "tags": ["rename", "refactor", "phased_approach", "test_gates", "process"]
+}

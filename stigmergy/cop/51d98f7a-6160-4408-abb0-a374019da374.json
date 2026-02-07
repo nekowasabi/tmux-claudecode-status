@@ -1,0 +1,29 @@
+{
+  "mission_id": "51d98f7a-6160-4408-abb0-a374019da374",
+  "objective": "Fix Codex process detection bug using TDD Red-Green-Refactor cycle",
+  "status": "completed",
+  "current_phase": 7,
+  "phase_status": "in_progress",
+  "started_at": "2026-02-06T00:00:00Z",
+  "mode": "normal",
+  "context": {
+    "project_path": "/home/takets/repos/tmux-claudecode-status",
+    "root_cause": "ps comm field shows 'node' not 'codex'",
+    "impact": "if (comm == 'codex') always evaluates to false"
+  },
+  "phase_timing": {
+    "mission_initialization": {
+      "started_at": "2026-02-06T00:00:00Z",
+      "completed_at": "2026-02-06T00:00:01Z"
+    },
+    "agent_pool_warmup": {
+      "started_at": "2026-02-06T00:00:01Z",
+      "completed_at": "2026-02-06T00:00:02Z"
+    },
+    "early_return_gate": {
+      "started_at": "2026-02-06T00:00:02Z",
+      "completed_at": "2026-02-06T00:00:03Z",
+      "result": "proceed"
+    }
+  }
+}

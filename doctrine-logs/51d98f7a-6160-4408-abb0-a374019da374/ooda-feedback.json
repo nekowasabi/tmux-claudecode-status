@@ -1,0 +1,32 @@
+{
+  "mission_id": "51d98f7a-6160-4408-abb0-a374019da374",
+  "feedback_type": "mission",
+  "status": "success",
+  "lessons": [
+    {
+      "category": "tdd_implementation",
+      "lesson": "AWK split() returns field count - must use return value instead of NF for split arrays",
+      "context": "When parsing ps output with variable fields, NF refers to original line fields, not split array size",
+      "confidence": 0.95
+    },
+    {
+      "category": "process_detection",
+      "lesson": "Node.js processes require args inspection - comm field alone insufficient for detection",
+      "context": "Codex runs as 'node' process with '/codex' in command line arguments",
+      "confidence": 0.98
+    },
+    {
+      "category": "regex_patterns",
+      "lesson": "Use word boundary patterns to prevent false positives in process detection",
+      "context": "Pattern /(^|[[:space:]]|\\/)codex([[:space:]]|$)/ prevents matching codex-server, mycodex",
+      "confidence": 0.92
+    }
+  ],
+  "metrics": {
+    "tests_before": "12/14 PASS (2 FAIL)",
+    "tests_after": "89/89 PASS (0 FAIL)",
+    "files_modified": 3,
+    "tdd_cycles": 1,
+    "edge_cases_validated": 8
+  }
+}

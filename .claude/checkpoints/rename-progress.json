@@ -1,0 +1,58 @@
+{
+  "mission": "claudecode → ai_agent リネーム実装",
+  "started_at": "2026-02-07",
+  "team_name": "rename-ai-agent",
+  "total_tasks": 16,
+  "phases": {
+    "phase0": {
+      "name": "準備作業",
+      "status": "completed",
+      "worker": "prep-worker",
+      "task_id": "1",
+      "started_at": "2026-02-07",
+      "completed_at": "2026-02-07",
+      "result": "ブランチ作成完了、全55テスト成功"
+    },
+    "phase1": {
+      "name": "内部実装の置換",
+      "status": "in_progress",
+      "workers": ["env-worker", "cache-worker", "tmux-worker", "var-worker", "fmt-worker"],
+      "task_ids": ["2", "3", "4", "5", "6"],
+      "description": "環境変数、キャッシュパス、tmuxオプション、変数名、フォーマット文字列の置換",
+      "started_at": "2026-02-07"
+    },
+    "phase1_test": {
+      "name": "Phase 1 中間テスト",
+      "status": "pending",
+      "worker": null,
+      "task_id": "7"
+    },
+    "phase2": {
+      "name": "ドキュメント更新",
+      "status": "pending",
+      "worker": null,
+      "task_id": "8"
+    },
+    "phase3": {
+      "name": "テストファイル更新",
+      "status": "pending",
+      "worker": null,
+      "task_id": "9"
+    },
+    "phase4": {
+      "name": "ファイル名変更とユーザー設定",
+      "status": "pending",
+      "task_ids": ["10", "11", "12"],
+      "description": "メインスクリプトリネーム、参照更新、ユーザー設定更新"
+    },
+    "phase5": {
+      "name": "最終確認とコミット",
+      "status": "pending",
+      "task_ids": ["13", "14", "15", "16"],
+      "description": "静的検証、全テスト、tmux動作確認、git commit"
+    }
+  },
+  "completed_tasks": ["1"],
+  "current_phase": "phase1",
+  "notes": "5つ以上のサブエージェントを並列実行予定（Phase 1）。各フェーズ完了時にこのファイルを更新。"
+}

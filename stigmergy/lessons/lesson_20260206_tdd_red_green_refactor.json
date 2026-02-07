@@ -1,0 +1,27 @@
+{
+  "id": "lesson_20260206_tdd_red_green_refactor",
+  "timestamp": "2026-02-06T00:00:00Z",
+  "category": "testing_methodology",
+  "title": "TDD Red-Green-Refactor catches logic errors before production",
+  "context": "Fixed Codex detection bug using strict TDD cycle",
+  "approach": {
+    "red_phase": "Modified test mock data to realistic format - tests FAILED (12/14)",
+    "green_phase": "Fixed implementation to match new reality - tests PASSED (89/89)",
+    "refactor_phase": "Validated edge cases and backward compatibility"
+  },
+  "key_insight": "Tests passing with incorrect mock data created false confidence - fixing mocks first exposed the real bug",
+  "results": {
+    "before": "Tests 90/90 PASS but production broken (Codex not detected)",
+    "after": "Tests 89/89 PASS and production working (Codex detected correctly)"
+  },
+  "best_practices": [
+    "Mock data must match production reality exactly",
+    "Red phase should fail for the right reason",
+    "Validate edge cases after Green phase",
+    "Maintain backward compatibility throughout"
+  ],
+  "applicable_to": ["bug_fixes", "feature_development", "integration_testing"],
+  "confidence": 0.92,
+  "impact": "high",
+  "tags": ["tdd", "testing", "bug_fix", "methodology"]
+}

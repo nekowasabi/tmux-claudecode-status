@@ -1,0 +1,31 @@
+{
+  "id": "lesson_20260207_code_patterns_awk_regex_rename_handling",
+  "timestamp": "2026-02-07T00:00:00Z",
+  "category": "code-patterns",
+  "title": "AWK/regex contexts require context-aware rename handling",
+  "context": "During claudecode-to-ai_agent rename, identifiers appeared inside AWK scripts, regex patterns, tmux format strings, and shell variable expansions -- each with different escaping rules",
+  "problem": "Simple sed-based find-and-replace breaks when the target string appears inside AWK field references (e.g., split patterns), tmux interpolation syntax (#{...}), or shell variable expansion (${}). Each context has unique escaping and quoting requirements.",
+  "solution": "Categorize replacement sites by syntactic context before applying changes. Apply context-specific replacement strategies: (1) AWK: verify split/field references are preserved, (2) tmux: preserve #{} interpolation boundaries, (3) shell: ensure ${} expansion syntax remains valid. Test each context independently.",
+  "code_examples": {
+    "tmux_format": {
+      "before": "#{claudecode_status}",
+      "after": "#{ai_agent_status}",
+      "note": "Must preserve #{ and } delimiters exactly"
+    },
+    "shell_variable": {
+      "before": "CLAUDECODE_STATUS_CACHE",
+      "after": "AI_AGENT_STATUS_CACHE",
+      "note": "Must update all declaration and reference sites atomically"
+    },
+    "tmux_option": {
+      "before": "@claudecode_working_threshold",
+      "after": "@ai_agent_working_threshold",
+      "note": "@ prefix is part of tmux option syntax, not the identifier"
+    }
+  },
+  "applicable_to": ["shell_scripting", "awk_programming", "tmux_plugins", "identifier_rename"],
+  "when_to_apply": "When renaming identifiers that appear in mixed-language contexts (shell + AWK + tmux config + documentation)",
+  "confidence": 0.93,
+  "impact": "high",
+  "tags": ["awk", "regex", "rename", "shell", "tmux", "context_awareness"]
+}

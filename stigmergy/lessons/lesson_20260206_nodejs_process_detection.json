@@ -1,0 +1,24 @@
+{
+  "id": "lesson_20260206_nodejs_process_detection",
+  "timestamp": "2026-02-06T00:00:00Z",
+  "category": "process_detection",
+  "title": "Node.js wrapped binaries require command-line inspection for detection",
+  "context": "Codex CLI is a Node.js binary - ps comm shows 'node', not 'codex'",
+  "problem": "Detection logic checked comm == 'codex', but actual process shows comm == 'node' with args containing '/codex'",
+  "solution": "Parse both comm and args fields from ps, detect pattern in command line: comm == 'node' && args ~ /(^|[[:space:]]|\\/)codex([[:space:]]|$)/",
+  "real_example": {
+    "pid": "2718008",
+    "comm": "node",
+    "args": "/home/takets/.local/share/mise/installs/node/24.13.0/bin/codex --full-auto"
+  },
+  "regex_pattern": "/(^|[[:space:]]|\\/)codex([[:space:]]|$)/",
+  "edge_cases_prevented": [
+    "codex-server (hyphenated variant)",
+    "mycodex (prefix variant)",
+    "/workspace/codex/ (directory name only)"
+  ],
+  "applicable_to": ["process_monitoring", "cli_detection", "node_binaries"],
+  "confidence": 0.98,
+  "impact": "critical",
+  "tags": ["nodejs", "process_detection", "regex", "command_line"]
+}
